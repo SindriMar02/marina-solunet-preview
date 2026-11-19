@@ -64,7 +64,7 @@ export function agentShell(active, title) {
   const a = store.me()
   const tabs = [['today', 'Profile', 'profile.html'], ['sell', 'Sell', 'sell.html'], ['sales', 'Sales', 'sales.html'], ['money', 'Money', 'money.html'], ['more', 'Library', 'library.html']]
   document.body.insertAdjacentHTML('afterbegin', `
-    <header class="top"><a class="logo" href="../index.html" aria-label="Marina Travel prototype hub"><img src="../assets/img/marina-logo-dark.png" alt="Marina Travel"></a>
+    <header class="top"><a class="logo" href="../index.html" aria-label="Marina Travel prototype hub"><span class="name">${esc(store.settings().brand)}</span><span class="by">by Marina Travel</span></a>
       <span class="where">${esc(title || 'Sales network')}</span><span class="spacer"></span>
       <span class="chip" title="${esc(a.name)}"><span class="sr">Your seller number</span><b>${esc(a.sellerId)}</b></span>${sessionControl()}</header>`)
   document.body.insertAdjacentHTML('beforeend', `<nav class="tabbar" aria-label="Agent sections">${tabs.map(([k, l, h]) =>
@@ -87,7 +87,7 @@ function liveRegion() {
   toastEl = document.createElement('div'); toastEl.className = 'toast'; toastEl.setAttribute('role', 'status'); toastEl.setAttribute('aria-live', 'polite'); document.body.append(toastEl)
 }
 export function guestShell() {
-  document.body.insertAdjacentHTML('afterbegin', `<header class="top"><a class="logo" href="index.html" aria-label="Marina Travel"><img src="assets/img/marina-logo-dark.png" alt="Marina Travel"></a>
+  document.body.insertAdjacentHTML('afterbegin', `<header class="top"><a class="logo" href="index.html" aria-label="Marina Travel"><span class="name">${esc(store.settings().brand)}</span><span class="by">by Marina Travel</span></a>
     <span class="spacer"></span><a class="where tel" href="tel:+3548678899">+354 867 8899</a></header>`)
   skipLink(); liveRegion(); bindSignOut()
 }
@@ -133,7 +133,7 @@ export function adminShell(title, roles = ['admin']) {
     oversight: [['oversight', 'Overview'], ['audit', 'Audit']],
   }[actor.role]
 
-  document.body.insertAdjacentHTML('afterbegin', `<header class="top"><a class="logo" href="../index.html" aria-label="Prototype hub"><img src="../assets/img/marina-logo-dark.png" alt="Marina Travel"></a>
+  document.body.insertAdjacentHTML('afterbegin', `<header class="top"><a class="logo" href="../index.html" aria-label="Prototype hub"><span class="name">${esc(store.settings().brand)}</span><span class="by">by Marina Travel</span></a>
     <span class="where">${esc(title)}</span><span class="spacer"></span><span class="chip">${esc(actor.name)}</span>${sessionControl()}</header>
     <nav class="work-nav" aria-label="Workspace">${pages.map(([id, label]) => `<a href="${id}.html"${location.pathname.endsWith('/' + id + '.html') ? ' aria-current="page"' : ''}>${label}</a>`).join('')}</nav>`)
   skipLink(); liveRegion(); bindSignOut()
@@ -209,7 +209,7 @@ export function siteShell(active) {
   document.body.classList.add('site')
   document.body.insertAdjacentHTML('afterbegin', `
     <header class="top site-top">
-      <a class="logo" href="index.html" aria-label="Marina Travel · demo hub"><img src="assets/img/marina-logo-dark.png" alt="Marina Travel"></a>
+      <a class="logo" href="index.html" aria-label="Marina Travel · demo hub"><span class="name">${esc(store.settings().brand)}</span><span class="by">by Marina Travel</span></a>
       <span class="site-brand">${esc(store.settings().brand)}</span><span class="spacer"></span>
       <nav aria-label="${esc(store.settings().brand)}">
         <a href="how.html"${active === 'how' ? ' aria-current="page"' : ''}>How it works</a>

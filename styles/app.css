@@ -909,3 +909,11 @@ html:not([data-input="pointer"]) .answer:has(:focus-visible) { outline: 2px soli
 @media (hover: hover) and (pointer: fine) {
   .workbench .queue-tabs a:hover { color: var(--gold-text); border-color: var(--w50); }
 }
+
+/* Header wordmark (19 Nov): text mark like the guest site, no cream logo plate. */
+.top .logo { background: none; padding: 0; border-radius: 0; display: inline-grid; align-content: center; line-height: 1.05; text-decoration: none; min-height: 44px; }
+.top .logo .name { font-weight: 600; letter-spacing: -.01em; font-size: 17px; color: var(--w); transition: color var(--t-state) var(--ease); }
+.top .logo .by { font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--gold-text); }
+.top .logo:hover .name { color: var(--gold-text); }
+.site-top .site-brand { display: none; }
+@media (max-width: 767px) { .top .logo .name { font-size: 16px; } .top .logo .by { font-size: 10px; } }
