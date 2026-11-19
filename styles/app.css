@@ -772,3 +772,7 @@ html:not([data-input="pointer"]) .answer:has(:focus-visible) { outline: 2px soli
 .tour-decide .p-price b { font-size: clamp(30px, 3vw, 40px); }
 .tour-decide .meta { flex-basis: 100%; }
 .crumbs { align-items: center; }
+@media (min-width: 900px) {
+  .p-hero-copy { width: auto; margin-inline: clamp(40px, 5vw, 96px) auto; }
+  .p-hero-copy > * { max-width: min(46vw, 820px); }
+}
