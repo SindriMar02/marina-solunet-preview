@@ -786,3 +786,4 @@ html:not([data-input="pointer"]) .answer:has(:focus-visible) { outline: 2px soli
   .p-hero-copy { padding-block: 4px 44px; margin-top: -40px; }
   .p-hero .eyebrow, .p-facts li { text-shadow: none; }
 }
+.lightbox { background: #0c141b; }
