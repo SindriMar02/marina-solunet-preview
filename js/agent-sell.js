@@ -1,6 +1,16 @@
 import * as store from './store.js'
 import { $, esc, isk, agentShell, dayLabel, stamp } from './ui.js'
 agentShell('sell', 'Sell')
+const heading = $('#main h1')
+heading.closest('main').classList.add('work-inner')
+const seller = store.me()
+heading.textContent = 'Sell your first tour.'
+heading.previousElementSibling.textContent = 'Seller tools · ' + seller.sellerId
+heading.nextElementSibling.insertAdjacentHTML('afterend', `<section class="work-section agent-intro">
+  <h2 class="h-task">Choose how to sell</h2>
+  <p class="dim">Open a tour to share your link or prepare a quote for a specific departure.</p>
+  <div class="actions"><a class="btn" href="#tours">View assigned tours</a><a class="btn" href="library.html">Open sales library</a></div>
+</section>`)
 function draw() {
   $('#tours').innerHTML = store.suppliers().map(s => `
     <section aria-labelledby="name-${s.id}">
@@ -24,7 +34,7 @@ function draw() {
       }).join('')}</div>
     </section>`).join('')
   const qs = store.myQuotes()
-  $('#quotes').innerHTML = qs.length ? qs.map(q => { const t = store.tour(q.tourId), o = q.orderId && store.orderById(q.orderId)
+  $('#quotes').innerHTML = qs.length ? qs.map(q => { const t = store.tour(q.tourId), o = q.orderId && store.myOrder(q.orderId)
     const st = o ? ({ confirmed: 'Paid', partially_refunded: 'Paid, part refunded', cancelled: 'Cancelled', failed: 'Payment not completed', requested: 'Requested', handed_off: 'At checkout, not paid yet' }[o.state] || o.state)
       : q.expires < new Date().toISOString() ? 'Expired' : q.opened ? 'Opened by the customer' : 'Created'
     return `<li><a class="row" href="quote.html?q=${q.id}"><span class="r1">${esc(q.customer || 'Customer')} · ${esc(t.title)}</span>

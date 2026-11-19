@@ -16,7 +16,12 @@ function showTour() {
     .map(([k, v]) => `<div><dt>${k}</dt><dd>${esc(v)}</dd></div>`).join('')
 
   const guided = params.get('demo') === 'anna' && t.id === 'eastfjords'
-  const sel = { date: '2026-12-05', startTimeId: guided ? 5263195 : null, pax: t.min }
+  const proposed = params.get('d')
+  const chosen = store.departures(t.id).find(day => day.date === proposed)
+  const start = chosen?.starts.find(item => item.startTimeId === Number(params.get('s')))
+  const pax = Number(params.get('p'))
+  const sel = { date: chosen?.date || t.defaultDate, startTimeId: start?.startTimeId || (guided ? 5263195 : null),
+    pax: Number.isInteger(pax) && pax >= t.min && pax <= t.max ? pax : t.min }
   if (guided) {
     const bridge = document.createElement('a')
     bridge.className = 'linkbtn'
@@ -56,7 +61,13 @@ function showTour() {
 
   async function share(opener, viaKey) {
     const k = store.createLink(t.id, 'link')
-    const url = new URL(`../s.html?k=${k}`, location.href).href
+    const selected = new URLSearchParams({ k })
+    if (picker.state().ok) {
+      selected.set('d', sel.date)
+      selected.set('s', sel.startTimeId)
+      selected.set('p', sel.pax)
+    }
+    const url = new URL(`../s.html?${selected}`, location.href).href
     sheet({ title: 'Share this tour', opener, viaKey, body: `
         <div style="display:grid;gap:16px">
           <div class="qr" id="qr" aria-label="QR code for your link"></div>

@@ -1,14 +1,17 @@
 import * as store from './store.js'
 import { $, esc, siteShell } from './ui.js'
-import { accessKey, accessUrl, field, focusHeading, rememberAccess, root, timeTag, validateFields } from './recruitment.js'
+import { recruitmentMotion, guardApplicant, accessKey, accessUrl, field, focusHeading, rememberAccess, root, timeTag, validateFields } from './recruitment.js'
 
-siteShell()
 const access = accessKey()
+guardApplicant(access)
+siteShell()
+recruitmentMotion()
 const messages = {
   signed: 'Your seller account is active.',
   submitted: 'Verify your email to open the test.',
   verified: 'Your email is verified. Your test is ready.',
   eligible: 'The Marina review team will read your application.',
+  market_hold: 'Marina is holding applications for this market while it checks launch readiness.',
   look_closer: 'The Marina review team is taking a closer look.',
   not_qualified: 'Your application did not move into the review queue. You can ask Marina to reconsider.',
   timed_out: 'Your test ended before submission. You can ask Marina to review what happened.',
@@ -27,9 +30,9 @@ function render(moveFocus = false) {
     return
   }
   rememberAccess(access)
-  const attempt = app.attempt
+  const attempt = app.attempt?.fixtureOnly ? null : app.attempt
   const seller = store.agent(app.agentId)
-  const active = seller?.state === 'active'
+  const active = Boolean(seller?.activatedAt)
   const invite = store.invitationFor(app)
   const canOpen = invite && Date.parse(invite.expiresAt) > Date.now()
   const canLeaveWaitlist = app.state === 'waitlist' && store.intakeState() === 'open'
@@ -51,12 +54,13 @@ function render(moveFocus = false) {
       ${record.map(([label, at, detail]) => `<li><strong>${label}</strong><span class="status ${at ? 'confirmed' : 'pending'}">${at ? timeTag(at) : 'Pending'}</span>
         <span class="why">${esc(detail)}</span></li>`).join('')}
     </ol>
+    ${app.state === 'not_qualified' && attempt ? `<p class="notice">Your test scored ${attempt.score}/100. The pass mark for your attempt was ${attempt.threshold}/100.</p>` : ''}
     ${['rejected', 'reconsideration'].includes(app.state) && app.reason ? `<p class="notice">Reason category · ${esc(app.reason)}</p>` : ''}
     <div class="actions">
       ${app.state === 'submitted' ? `<a class="btn primary" href="apply.html?mail=1&access=${encodeURIComponent(access)}">Open verification email (demo)</a>` : ''}
       ${canLeaveWaitlist ? '<button type="button" class="btn primary" id="continue-waitlist">Continue your application</button>' : ''}
       ${app.state === 'verified' ? `<a class="btn primary" href="${accessUrl('test', access)}">${attempt ? 'Resume the test' : 'Read the test rules'}</a>` : ''}
-      ${active && invite ? `<a class="btn primary" href="activate.html?inv=${invite.token}">Open seller setup</a>` : ''}
+      ${active && invite ? `<a class="btn primary" href="login.html?next=a%2Fsell.html">Sign in to your portal</a>` : ''}
       ${app.state === 'approved' && !active ? `${canOpen ? `<a class="btn primary" href="activate.html?inv=${invite.token}">Open your invitation</a>` : ''}
         <button type="button" class="btn" id="recover">Request a new invitation (demo)</button>` : ''}
       <a class="linkbtn" href="index.html#demo-story">Back to the demo</a>

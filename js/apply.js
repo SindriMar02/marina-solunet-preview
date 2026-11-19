@@ -1,9 +1,14 @@
+import { principal } from './session.js'
 import * as store from './store.js'
 import { $, esc, qs, siteShell } from './ui.js'
-import { accessKey, accessUrl, field, focusHeading, journey, rememberAccess, root, TERMS, validateFields } from './recruitment.js'
+import { recruitmentMotion, accessKey, accessUrl, field, focusHeading, journey, rememberAccess, root, TERMS, validateFields } from './recruitment.js'
 
-siteShell()
 const { guided, source } = journey()
+const startMarker = 'solunet-start-' + source
+if (!qs('mail') && !sessionStorage.getItem(startMarker)) {
+  sessionStorage.setItem(startMarker, '1')
+  await store.visitRecruitment(source, 'start')
+}
 const draftKey = guided ? 'solunet-anna-draft' : 'solunet-application-draft'
 const mailKey = guided ? 'solunet-anna-mail' : 'solunet-application-mail'
 const read = key => JSON.parse(sessionStorage.getItem(key) || 'null')
@@ -18,12 +23,17 @@ const stepIndex = value => Math.max(0, Math.min(2, Number.parseInt(value ?? '0',
 let step = stepIndex(qs('step') ?? saved?.step)
 let mail = read(mailKey)
 const explicitAccess = qs('access')
+if (explicitAccess) rememberAccess(explicitAccess)
+const pageActor = principal()?.sessionId
+siteShell()
+recruitmentMotion()
 if (explicitAccess) mail = null
 const steps = ['About you', 'How you sell', 'Confirm']
 const fields = [
   [
     { id: 'name', label: 'Name', autocomplete: 'name', max: 120 },
     { id: 'country', label: 'Country', autocomplete: 'country-name', max: 120 },
+    { id: 'phone', label: 'Phone', type: 'tel', autocomplete: 'tel', required: false, max: 80 },
     { id: 'email', label: 'Email', type: 'email', autocomplete: 'email', max: 254 },
   ],
   [
@@ -32,6 +42,7 @@ const fields = [
     { id: 'salesExperience', label: 'Sales experience', type: 'textarea', help: 'Tell us what you have sold, or enter “None yet”.' },
     { id: 'tourismExperience', label: 'Tourism experience', type: 'textarea', help: 'Tell us about relevant work, or enter “None yet”.' },
     { id: 'channels', label: 'Sales channels', help: 'For example, referral partners, email or a travel newsletter.', max: 500 },
+    { id: 'reference', label: 'Alternative reference', help: 'Describe a customer or partner who could speak to your work. Use fictional details here.', required: false },
     { id: 'links', label: 'Links to your sales channels', help: 'Include any sites Marina should review.', required: false },
   ],
 ]
@@ -50,8 +61,8 @@ function draw(moveFocus = false) {
   const state = store.intakeState()
   if (qs('mail')) { drawMail(moveFocus); return }
   const existing = guided && store.demoApplication()
-  if (existing && store.applicationByAccess(existing.access)) {
-    root.innerHTML = `<header><p class="eyebrow">Anna’s application · Demo</p><h1 class="h-page">Continue your application</h1></header>
+  if (existing && store.applicantLink(existing.access)) {
+    root.innerHTML = `<header><p class="eyebrow">Anna’s application · Demo</p><h1 class="h-page" tabindex="-1">Continue your application</h1></header>
       <a class="btn primary" href="${accessUrl('status', existing.access)}">Open application status</a>`
     return
   }
@@ -70,6 +81,8 @@ function draw(moveFocus = false) {
           <h2 class="h-task">How Marina uses your details</h2>
           <p>Your application details and test answers are used to assess your fit for the pilot. Approved applicants receive an invitation at the email they verified.</p>
           <details class="editorial-faq"><summary>Preview the draft agent terms</summary>${TERMS.map(t => `<p class="dim">${t}</p>`).join('')}</details>
+          <label class="checkline"><input type="checkbox" name="privacy" id="privacy" aria-describedby="privacy-error" required ${draft.privacy === 'on' ? 'checked' : ''}>I acknowledge how Marina uses my application details.</label>
+          <p class="hint err" id="privacy-error" role="alert"></p>
           <p class="proto">Verification email and the live Turnstile check are simulated in this prototype.</p>
         </div>`}
       <p class="hint err" role="alert" id="submit-error"></p>
@@ -81,12 +94,19 @@ function draw(moveFocus = false) {
   const form = $('form', root)
   form.addEventListener('input', () => {
     draft = { ...draft, ...Object.fromEntries(new FormData(form)) }
+    if (step === 2 && !$('#privacy').checked) delete draft.privacy
     saveDraft()
   })
   if (step > 0) $('#back').onclick = () => showStep(step - 1, true)
   form.onsubmit = async e => {
     e.preventDefault()
     if (!validateFields(form)) return
+    if (step === 2 && !$('#privacy').checked) {
+      $('#privacy-error').textContent = 'Acknowledge how Marina uses your details to continue.'
+      $('#privacy').setAttribute('aria-invalid', 'true')
+      $('#privacy').focus()
+      return
+    }
     draft = { ...draft, ...Object.fromEntries(new FormData(form)) }
     if (step < 2) { showStep(step + 1, true); return }
     for (let i = 0; i < fields.length; i++) {
@@ -96,13 +116,13 @@ function draw(moveFocus = false) {
     button.disabled = true
     try {
       const waitlist = store.intakeState() === 'closed'
-      const result = await store.createApplication({ ...draft, source }, { guided, waitlist })
+      const result = await store.createApplication({ ...draft, source }, { guided, waitlist, winterTrial: true })
       mail = { ...result, waitlist }
       rememberAccess(result.access)
       saveMail()
       sessionStorage.removeItem(draftKey)
       history.replaceState(null, '', `?mail=1${guided ? '&demo=anna' : ''}`)
-      drawMail(true)
+      location.reload()
     } catch (error) {
       updateIntake()
       $('#submit-error').textContent = ({ application_invalid: 'Check your application details and use a complete email address.', intake_closed: 'Intake closed while you were applying. You can join the waitlist.' })[error.message]
@@ -178,7 +198,10 @@ window.addEventListener('popstate', () => {
   draw(true)
 })
 window.addEventListener('storage', () => { store.refresh(); updateIntake() })
-window.addEventListener('pageshow', e => { if (e.persisted) { store.refresh(); updateIntake() } })
+window.addEventListener('pageshow', event => {
+  if (event.persisted && pageActor !== principal()?.sessionId) location.reload()
+  else if (event.persisted) { store.refresh(); updateIntake() }
+})
 if (!qs('mail') && !qs('step') && step > 0) {
   const url = new URL(location.href)
   url.searchParams.set('step', step)

@@ -3,7 +3,11 @@ import { $, esc, isk, pct, agentShell, dayLabel, stamp, viewerTime, copy, qrSvg,
 agentShell('sell', 'Quote')
 const P = new URLSearchParams(location.search)
 
-if (P.get('q')) view(store.quote(P.get('q'))); else build()
+if (P.get('q')) {
+  const quote = store.myQuote(P.get('q'))
+  if (quote) view(quote)
+  else location.replace('../403.html')
+} else build()
 
 function build() {
   const t = store.tour(P.get('t')), date = P.get('d'), startTimeId = Number(P.get('s')), pax = Number(P.get('p'))
@@ -49,7 +53,7 @@ function build() {
 
 async function view(q) {
   if (!q) { $('#main').innerHTML = '<p class="notice err">Quote not found. <a href="sell.html">Back</a></p>'; return }
-  const t = store.tour(q.tourId), o = q.orderId && store.orderById(q.orderId)
+  const t = store.tour(q.tourId), o = q.orderId && store.myOrder(q.orderId)
   const url = new URL(`../q.html?k=${q.k}`, location.href).href
   const st = o ? o.state : q.expires < new Date().toISOString() ? 'expired' : q.opened ? 'opened' : 'sent'
   $('#main').innerHTML = `

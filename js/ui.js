@@ -1,5 +1,6 @@
 /* Shared UI: formatting, shells, sheet, toast, QR. No framework. */
 import * as store from './store.js'
+import { endSession, guardPage, principal, relativeRoot } from './session.js'
 
 export const $ = (s, el = document) => el.querySelector(s)
 export const $$ = (s, el = document) => [...el.querySelectorAll(s)]
@@ -47,17 +48,29 @@ export const icon = (n, label) => `<svg viewBox="0 0 24 24" aria-hidden="true"${
 
 /** Agent shell: header + 5-tab bar (Today/Money/More land in later slices and are marked). */
 export function agentShell(active, title) {
-  document.body.classList.add('agent')
+  const actor = guardPage(['agent'], store.sessionAllowed)
+  const seller = store.agent(actor.id)
+  if (seller.state === 'suspended' && !['money', 'restricted', 'sales'].includes(active)) {
+    location.replace('restricted.html')
+    throw new Error('seller_suspended')
+  }
+  window.addEventListener('storage', () => {
+    if (store.agent(actor.id)?.state === 'suspended' && !['money', 'restricted', 'sales'].includes(active)) {
+      document.body.hidden = true
+      location.replace('restricted.html')
+    }
+  })
+  document.body.classList.add('agent', 'workbench')
   const a = store.me()
-  const tabs = [['today', 'Today', null], ['sell', 'Sell', 'sell.html'], ['sales', 'Sales', 'sales.html'], ['money', 'Money', null], ['more', 'More', null]]
+  const tabs = [['today', 'Profile', 'profile.html'], ['sell', 'Sell', 'sell.html'], ['sales', 'Sales', 'sales.html'], ['money', 'Money', 'money.html'], ['more', 'Library', 'library.html']]
   document.body.insertAdjacentHTML('afterbegin', `
     <header class="top"><a class="logo" href="../index.html" aria-label="Marina Travel prototype hub"><img src="../assets/img/marina-logo-dark.png" alt="Marina Travel"></a>
       <span class="where">${esc(title || 'Sales network')}</span><span class="spacer"></span>
-      <span class="chip" title="${esc(a.name)}"><span class="sr">Your seller number</span><b>${esc(a.sellerId)}</b></span></header>`)
+      <span class="chip" title="${esc(a.name)}"><span class="sr">Your seller number</span><b>${esc(a.sellerId)}</b></span>${sessionControl()}</header>`)
   document.body.insertAdjacentHTML('beforeend', `<nav class="tabbar" aria-label="Agent sections">${tabs.map(([k, l, h]) =>
     h ? `<a href="${h}" aria-label="${l}"${k === active ? ' aria-current="page"' : ''}>${icon(k)}<span aria-hidden="true">${l}</span></a>`
       : `<span class="tab-off" aria-disabled="true" title="${l}: coming in a later slice">${icon(k)}<span>${l}</span><span class="sr"> (coming in a later slice)</span></span>`).join('')}</nav>`)
-  skipLink(); liveRegion()
+  skipLink(); liveRegion(); bindSignOut()
 }
 function skipLink() {
   if (document.querySelector('.skip')) return
@@ -76,7 +89,7 @@ function liveRegion() {
 export function guestShell() {
   document.body.insertAdjacentHTML('afterbegin', `<header class="top"><a class="logo" href="index.html" aria-label="Marina Travel"><img src="assets/img/marina-logo-dark.png" alt="Marina Travel"></a>
     <span class="spacer"></span><a class="where tel" href="tel:+3548678899">+354 867 8899</a></header>`)
-  skipLink(); liveRegion()
+  skipLink(); liveRegion(); bindSignOut()
 }
 /** The guest-facing site (working name from settings; Einar 19 Nov: a new simple site, marinatravel.is untouched). */
 export function storeShell(active) {
@@ -96,14 +109,34 @@ export function storeShell(active) {
   document.body.insertAdjacentHTML('beforeend', `
     <footer class="site-footer store-footer"><div class="site-well">
       <div><strong>${esc(brand)}</strong><p class="meta">Tours run and sold by Marina Travel ehf., licensed travel agency · Hólabraut 20, 780 Höfn · kt. 590514-0390</p></div>
-      <div class="store-contact"><a class="linkbtn" href="tel:+3548678899">+354 867 8899</a><a class="linkbtn" href="mailto:hello@marinatravel.is">hello@marinatravel.is</a><a class="linkbtn" href="index.html">Prototype hub</a></div>
+      <div class="store-contact"><a class="linkbtn" href="tel:+3548678899">+354 867 8899</a><a class="linkbtn" href="mailto:hello@marinatravel.is">hello@marinatravel.is</a><a class="linkbtn" href="index.html">Prototype hub</a>${principal() ? sessionControl() : ''}</div>
     </div></footer>`)
-  skipLink(); liveRegion()
+  skipLink(); liveRegion(); bindSignOut()
 }
-export function adminShell(title) {
+function sessionControl() {
+  return principal() ? '<button type="button" class="linkbtn signout" data-signout>Sign out</button>' :
+    `<a class="linkbtn signout" href="${relativeRoot()}login.html">Sign in</a>`
+}
+function bindSignOut() {
+  $('[data-signout]')?.addEventListener('click', () => {
+    store.recordSession('sign_out', principal())
+    endSession()
+    location.replace(relativeRoot() + 'login.html?signedout=1')
+  })
+}
+export function adminShell(title, roles = ['admin']) {
+  const actor = guardPage(roles, store.sessionAllowed)
+  document.body.classList.add('workbench', 'marina')
+  const pages = {
+    admin: [['overview', 'Overview'], ['applications', 'Applications'], ['agents', 'Agents'], ['sales', 'Sales'], ['suppliers', 'Suppliers'], ['library', 'Materials'], ['settings', 'Settings'], ['audit', 'Audit']],
+    reviewer: [['applications', 'Applications']],
+    oversight: [['oversight', 'Overview'], ['audit', 'Audit']],
+  }[actor.role]
+
   document.body.insertAdjacentHTML('afterbegin', `<header class="top"><a class="logo" href="../index.html" aria-label="Prototype hub"><img src="../assets/img/marina-logo-dark.png" alt="Marina Travel"></a>
-    <span class="where">Admin · ${esc(title)}</span><span class="spacer"></span><span class="chip">Staff · prototype</span></header>`)
-  skipLink(); liveRegion()
+    <span class="where">${esc(title)}</span><span class="spacer"></span><span class="chip">${esc(actor.name)}</span>${sessionControl()}</header>
+    <nav class="work-nav" aria-label="Workspace">${pages.map(([id, label]) => `<a href="${id}.html"${location.pathname.endsWith('/' + id + '.html') ? ' aria-current="page"' : ''}>${label}</a>`).join('')}</nav>`)
+  skipLink(); liveRegion(); bindSignOut()
 }
 
 export function toast(msg, ms = 2000) {
@@ -125,16 +158,19 @@ export function sheet({ title, body, onOpen, onClose, opener, viaKey }) {
   const el = document.createElement('div'); el.className = 'sheet'; el.setAttribute('role', 'dialog'); el.setAttribute('aria-modal', 'true'); el.setAttribute('aria-label', title); el.tabIndex = -1
   el.innerHTML = `<div class="grab" aria-hidden="true"></div><div class="head"><h2 class="h-task">${esc(title)}</h2>
     <button class="btn" data-close aria-label="Close">${icon('close')}</button></div>${body}`
-  const behind = [...document.body.children]
-  behind.forEach(n => n.inert = true)
+  const behind = new Map([...document.body.children].map(node => [node, node.inert]))
+  behind.forEach((_, node) => { node.inert = true })
   document.body.append(scrim, el)
   const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches
   let closed = false
   requestAnimationFrame(() => {
     if (closed) return
     scrim.classList.add('open'); el.classList.add('open')
-    const first = el.querySelector('button:not([data-close]):not([disabled]), a[href], input, select, textarea'); (keyboard && first ? first : el).focus({ preventScroll: true }) })
-  const focusables = () => $$('button, a[href], input, select, textarea', el).filter(x => !x.disabled)
+    const first = focusables().find(control => !control.hasAttribute('data-close')) || focusables()[0]
+    const initial = keyboard && first ? first : el
+    initial.focus({ preventScroll: true })
+  })
+  const focusables = () => $$('button, a[href], input, select, textarea', el).filter(x => !x.disabled && x.getClientRects().length)
   const onKey = e => {
     if (e.key === 'Escape') { e.preventDefault(); close() }
     if (e.key === 'Tab') { const f = focusables(); if (!f.length) return
@@ -145,7 +181,7 @@ export function sheet({ title, body, onOpen, onClose, opener, viaKey }) {
   function close() {
     if (closed) return; closed = true; openSheet = null
     document.removeEventListener('keydown', onKey)
-    behind.forEach(n => n.inert = false)
+    behind.forEach((inert, node) => { node.inert = inert })
     el.inert = true
     scrim.classList.remove('open'); el.classList.remove('open'); el.classList.add('closing')
     const done = () => { scrim.remove(); el.remove() }
@@ -178,6 +214,7 @@ export function siteShell(active) {
       <nav aria-label="${esc(store.settings().brand)}">
         <a href="how.html"${active === 'how' ? ' aria-current="page"' : ''}>How it works</a>
         <a href="index.html"${active === 'hub' ? ' aria-current="page"' : ''}>Demo</a>
+        ${sessionControl()}
       </nav>
     </header>`)
   document.body.insertAdjacentHTML('beforeend', `
@@ -185,6 +222,7 @@ export function siteShell(active) {
       <a class="linkbtn" href="tel:+3548678899">+354 867 8899</a></div></footer>`)
   skipLink()
   liveRegion()
+  bindSignOut()
 }
 
 export function scrollReveal() {

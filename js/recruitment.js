@@ -1,12 +1,29 @@
+import { applicantSession, guardPage, principal } from './session.js'
 import { $, $$, esc, qs, isk, stamp } from './ui.js'
-import { priceLine, TERMS_VERSION } from './store.js'
+import { applicantLink, priceLine, TERMS_VERSION } from './store.js'
 
 export const accessUrl = (page, access) => `${page}.html${access ? `?access=${encodeURIComponent(access)}` : ''}`
-export const accessKey = () => qs('access') || sessionStorage.getItem('solunet-access')
-export const rememberAccess = access => { if (access) sessionStorage.setItem('solunet-access', access) }
+export function accessKey() {
+  const access = qs('access') || sessionStorage.getItem('solunet-access')
+  if (qs('access')) rememberAccess(access)
+  return access
+}
+export function rememberAccess(access) {
+  const own = applicantLink(access)
+  if (own) {
+    applicantSession(own.id)
+    sessionStorage.setItem('solunet-access', access)
+  }
+}
+export function guardApplicant(access) {
+  const link = applicantLink(access)
+  if (!link || !principal()) return
+  guardPage(['applicant'], actor => actor.id === link.id && Boolean(applicantLink(access)))
+}
 export const timeText = date => `${stamp(date)} Iceland time`
 export const timeTag = date => `<time datetime="${esc(date)}">${esc(timeText(date))}</time>`
 export const root = $('#main')
+export function recruitmentMotion() { document.body.classList.add('workbench', 'recruitment') }
 export const focusHeading = (area = root) => area.querySelector('h1, h2, legend')?.focus()
 export const field = ({ id, label, value = '', type = 'text', required = true, help = '', autocomplete = 'off', max = 1500 }) => `
   <div class="field">
@@ -56,6 +73,7 @@ export function selectNumberKey(event, area) {
 
 export const TEST_CATEGORIES = 'selling, product knowledge, customer handling, tourism basics and sales scenarios'
 export const TERMS = [
+  'You choose where, when and how you find customers. Income is commission-based and there is no guaranteed income. You are responsible for your own taxes.',
   'You sell as an independent agent. Marina Travel runs the tours, sets prices and availability, takes guest payments through Bókun and supports the guest.',
   'Use Marina-approved prices, sales text and images. Send guests to Marina for payment and for the cancellation terms that apply to their booking.',
   'Commission is calculated on the eligible list price before VAT. A guest discount uses part of the agent’s commission rate. Refunds can reduce the commission.',

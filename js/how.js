@@ -4,22 +4,18 @@ import { answerRows, selectNumberKey, workedFormula, TEST_CATEGORIES, accessUrl,
 
 siteShell('how')
 document.title = `How ${store.settings().brand} works`
-const anna = store.demoApplication()
-const invited = store.invitationFor(anna)
-const seller = store.agent(anna?.agentId)
-const departure = 't=eastfjords&d=2027-06-05&s=5263195&p=6'
-const guest = seller?.state === 'active' && anna.linkKey
-  ? `s.html?k=${anna.linkKey}&${departure}`
-  : `s.html?${departure}&c=MT-00001`
+const { app: anna, invite, shared } = store.demoTrail()
+const departure = 't=icecave&d=2026-12-12&s=2774517&p=2'
+const guest = shared ? `s.html?k=${shared.k}&${departure}` : `s.html?${departure}&c=MT-00001`
 const steps = [
-  ['18 Nov', 'Agent', 'See the invitation to sell', 'Anna, a Marina employee acting as a pilot agent, sees the ad.', 'become.html?demo=anna&src=linkedin-w1'],
-  ['18 Nov', 'Agent', 'Apply and verify', 'She tells Marina how she sells and confirms her email address.', 'apply.html?demo=anna&src=linkedin-w1'],
-  ['18 Nov', 'System', 'Score the test', 'Sölunet scores her answers and sends qualifying applications to the review queue.', accessUrl('test', anna?.access)],
-  ['18 Nov', 'Marina', 'Make a decision', 'A member of the Marina team checks the evidence and decides.', `m/applications.html?id=${anna?.attempt?.submittedAt ? anna.id : 'fixture-9-0'}`],
-  ['18 Nov', 'System', 'Create the seller account', 'Approval issues a unique seller number, a personal link, a QR code and an invitation to activate.', invited ? `activate.html?inv=${invited.token}` : 'activate.html'],
-  ['5 Dec', 'Agent', 'Share a link or send a quote', 'Anna chooses the 13:00 Eastfjords departure for a group.', 'a/tour.html?t=eastfjords&demo=anna'],
-  ['5 Dec', 'Guest', 'Pay Marina on Bókun', 'The guest books with Marina and sees the booking status after payment.', guest],
-  ['5 Dec', 'System', 'Record the commission', 'The same booking, seller number and commission appear in both ledgers.', 'm/sales.html'],
+  ['Recruitment', 'Agent', 'See the invitation to sell', 'Anna, a Marina employee acting as a pilot agent, sees the ad.', 'ad.html'],
+  ['Recruitment', 'Agent', 'Apply and verify', 'She tells Marina how she sells and confirms her email address.', 'apply.html?demo=anna&src=linkedin-w1'],
+  ['Recruitment', 'System', 'Score the test', 'Sölunet scores her answers and sends qualifying applications to the review queue.', accessUrl('test', anna?.access)],
+  ['Review', 'Marina', 'Make a decision', 'A member of the Marina team checks the evidence and decides.', `m/applications.html?id=${anna?.tested ? anna.id : 'fixture-9-0'}`],
+  ['Review', 'System', 'Create the seller account', 'Approval issues a unique seller number, a personal link, a QR code and an invitation to activate.', invite ? `activate.html?inv=${invite.token}` : 'activate.html'],
+  ['Booking', 'Agent', 'Share a link or send a quote', 'Anna sends the winter ice cave departure for two guests.', `a/tour.html?${departure}`],
+  ['Booking', 'Guest', 'Request the departure on Bókun', 'Marina confirms the request before collecting payment.', guest],
+  ['Booking', 'System', 'Record the commission', 'The same booking, seller number and commission appear in both ledgers.', 'm/sales.html'],
 ]
 
 root.innerHTML = `
@@ -28,13 +24,14 @@ root.innerHTML = `
       <p class="eyebrow">${esc(store.networkLabel())}</p>
       <h1 class="feature-title" id="opening">A sales network for tours and activities.</h1>
       <p class="editorial-copy dim">Independent agents sell tours and activities from Marina and partner companies by link, QR code or quote. Suppliers run the experiences. Marina recruits and supports agents, takes guest payments and pays agent commission.</p>
+      <p class="meta">Planning estimate · 19–26 developer-days for the winter path, subject to successful Bókun checks and agreement on the launch scope.</p>
     </section>
     <figure class="feature-photo">
       <img src="assets/img/eastfjords.jpg" alt="The Eastfjords coastline on a Marina Travel tour">
       <figcaption class="meta">Enchanted Eastfjords · from Seyðisfjörður</figcaption>
     </figure>
     <section class="editorial-section" aria-labelledby="loop">
-      <header class="editorial-heading" data-reveal><h2 id="loop">From first click to commission.</h2><p class="proto">Illustrative dates from the pilot story</p></header>
+      <header class="editorial-heading" data-reveal><h2 id="loop">From first click to commission.</h2><p class="proto">Prototype winter trial</p></header>
       <ol class="editorial-ledger">
         ${steps.map(([date, who, title, copy, href], i) => `<li data-reveal>
           <div class="step-date num"><span>Step ${i + 1}</span><time datetime="2026-${date === '18 Nov' ? '11-18' : '12-05'}">${date}</time></div>

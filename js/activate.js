@@ -1,8 +1,10 @@
+import { agentIdentity, principal, startSession } from './session.js'
 import * as store from './store.js'
 import { $, esc, qs, siteShell, copy, qrSvg } from './ui.js'
-import { accessUrl, field, focusHeading, root, TERMS, termsDownload, timeTag, validateFields } from './recruitment.js'
+import { recruitmentMotion, accessUrl, field, focusHeading, root, TERMS, termsDownload, timeTag, validateFields } from './recruitment.js'
 
 siteShell()
+recruitmentMotion()
 const key = qs('inv')
 const resetUrl = 'index.html#demo-story'
 const termsUrl = termsDownload()
@@ -12,15 +14,19 @@ let version = ''
 
 function render(moveFocus = false) {
   const invite = store.invitation(key)
-  const app = store.application(invite?.appId)
+  const app = store.applicationFromInvitation(key)
   const seller = store.agent(invite?.agentId)
-  if (invite?.consumedAt && seller?.state === 'active') { void ready(app, seller, moveFocus); return }
+  if (invite?.consumedAt) {
+    if (app && seller?.state === 'active' && principal()?.id === seller.id) void ready(app, seller, moveFocus)
+    else location.replace('login.html?next=a%2Fsell.html')
+    return
+  }
   if (!app || !seller || Date.parse(invite.expiresAt) <= Date.now()) {
     root.innerHTML = `<header><p class="eyebrow">Seller activation</p><h1 class="h-page" tabindex="-1">${key ? 'This invitation is unavailable' : 'Set up your seller account'}</h1>
       <p>${key ? 'Open your application status to request a fresh invitation.' : 'Once Marina approves an application, the invitation opens your seller setup with your assigned seller number.'}</p></header>
       <div class="actions">
         <a class="btn primary" href="${esc(accessUrl('status', app?.access))}">Check application status</a>
-        <a class="btn" href="m/applications.html?id=fixture-9-0">See a demo application</a>
+        <a class="btn" href="login.html">Sign in</a>
       </div>`
   } else if (step === 0) {
     root.innerHTML = `<header><p class="eyebrow">Invitation · ${esc(seller.sellerId)}</p><h1 class="h-page" tabindex="-1">Welcome to Sölunet, ${esc(app.name)}</h1>
@@ -41,7 +47,7 @@ function render(moveFocus = false) {
         return
       }
       email = entered
-      advance(1)
+      credentialStep(() => advance(1))
     }
   } else if (step === 1) {
     root.innerHTML = `<header><p class="eyebrow">Seller activation · Step 2 of 3</p><h1 class="h-page" tabindex="-1">Read the agent terms</h1>
@@ -71,8 +77,9 @@ function render(moveFocus = false) {
       const button = event.submitter
       button.disabled = true
       try {
-        await store.activate(key, { email, emailVerified: true, termsVersion: version, address: $('#address').value, phone: $('#phone').value })
-        render(true)
+        const activated = await store.activate(key, { email, emailVerified: true, termsVersion: version, address: $('#address').value, phone: $('#phone').value })
+        store.recordSession('sign_in', startSession(agentIdentity(activated)))
+        location.reload()
       } catch (error) {
         $('#activation-error').textContent = error.message === 'invite_invalid'
           ? 'This invitation has expired or was already used. Check your application status.'
@@ -84,6 +91,15 @@ function render(moveFocus = false) {
   if (moveFocus) focusHeading()
 }
 
+function credentialStep(continueSetup) {
+  root.innerHTML = `<header><p class="eyebrow">Prototype sign-in</p><h1 class="h-page" tabindex="-1">Confirm your mailbox</h1>
+    <p>Open the simulated sign-in link for ${esc(email)} or continue with a simulated passkey.</p></header>
+    <div class="actions"><button class="btn primary" id="magic-link">Open sign-in link</button>
+    <button class="btn" id="passkey">Continue with passkey</button><button class="linkbtn" id="back">Back</button></div>`
+  $('#magic-link').onclick = $('#passkey').onclick = () => continueSetup()
+  $('#back').onclick = () => render(true)
+  focusHeading()
+}
 function advance(next) { step = next; render(true) }
 
 async function ready(app, seller, moveFocus) {
@@ -98,7 +114,7 @@ async function ready(app, seller, moveFocus) {
       <a class="linkbtn" href="${resetUrl}">Back to the demo</a>
     </div>
     <p class="proto">Demo links credit bookings in this browser. Use the printed link if the QR service is unavailable.</p>`
-  $('#portal').onclick = () => { store.refresh(); store.switchAgent(seller.id) }
+
   $('#copy').onclick = () => copy(url, 'Seller link copied')
   if (moveFocus) focusHeading()
   const qr = $('#qr')
@@ -106,3 +122,4 @@ async function ready(app, seller, moveFocus) {
 }
 
 render()
+window.addEventListener('pageshow', event => { if (event.persisted) location.reload() })

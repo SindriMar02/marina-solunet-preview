@@ -1,9 +1,11 @@
 import * as store from './store.js'
 import { $, $$, esc, siteShell } from './ui.js'
-import { accessKey, accessUrl, answerRows, selectNumberKey, focusHeading, rememberAccess, root, TEST_CATEGORIES, timeTag } from './recruitment.js'
+import { recruitmentMotion, guardApplicant, accessKey, accessUrl, answerRows, selectNumberKey, focusHeading, rememberAccess, root, TEST_CATEGORIES, timeTag } from './recruitment.js'
 
-siteShell()
 const access = accessKey()
+guardApplicant(access)
+siteShell()
+recruitmentMotion()
 const status = accessUrl('status', access)
 const bank = store.TEST_BANK
 const full = store.TEST_MINUTES * 60
@@ -17,7 +19,7 @@ if (store.applicationByAccess(access)) rememberAccess(access)
 function draw(moveFocus = false) {
   clearInterval(interval)
   const app = store.applicationByAccess(access)
-  attempt = app?.attempt
+  attempt = app?.attempt?.fixtureOnly ? null : app?.attempt
   if (attempt?.submittedAt) {
     root.innerHTML = `<header><p class="eyebrow">Agent test · Receipt</p><h1 class="h-page" tabindex="-1">Your test was received</h1>
       <p>Received ${timeTag(attempt.submittedAt)}. The demo reply estimate is ${timeTag(app.replyBy)}.</p>

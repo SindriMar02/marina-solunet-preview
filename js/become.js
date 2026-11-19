@@ -1,10 +1,11 @@
 import * as store from './store.js'
 import { $, esc, isk, siteShell, scrollReveal } from './ui.js'
-import { TERMS, journey, root, worked, timeText } from './recruitment.js'
+import { recruitmentMotion, TERMS, journey, root, worked, timeText } from './recruitment.js'
 
 siteShell()
+recruitmentMotion()
 const { guided, source } = journey()
-await store.visitRecruitment()
+await store.visitRecruitment(source)
 const params = new URLSearchParams()
 if (guided) params.set('demo', 'anna')
 if (source) params.set('src', source)
@@ -34,7 +35,7 @@ root.innerHTML = `
       </div>
     </section>
     <section class="editorial-section" aria-labelledby="tours">
-      <header class="editorial-heading" data-reveal><h2 id="tours">Two pilot tours</h2></header>
+      <header class="editorial-heading" data-reveal><h2 id="tours">Winter pilot and summer preview</h2></header>
       <div class="editorial-split" data-reveal>
       ${store.TOURS.filter(t => store.offer(t.id)?.status === 'active' && t.min).map(t => `<article class="flow-stack">
         <p class="eyebrow">${esc(t.place)}</p><h3 class="h-task">${esc(t.title)}</h3>
@@ -47,10 +48,10 @@ root.innerHTML = `
   </div>
   <section class="editorial-section paper-band" aria-labelledby="fit">
     <div class="site-well editorial-split">
-      <header class="editorial-heading" data-reveal><h2 id="fit">Who can apply?</h2><p class="dim">Tell us which markets you serve, which languages you sell in and how you reach customers. Marina uses those details and the test to assess fit for the pilot.</p></header>
+      <header class="editorial-heading" data-reveal><h2 id="fit">Who can apply?</h2><p class="dim">Tell us which markets you serve, which languages you sell in and how you reach customers. The prototype cohort begins with Europe and North America, including Iceland. Marina reviews the markets you serve and the languages you use with guests.</p></header>
       <div class="flow-stack" data-reveal>
         <h3 class="h-task">Pilot terms in brief</h3>
-        ${TERMS.slice(0, 3).map(term => `<p>${term}</p>`).join('')}
+        ${TERMS.slice(0, 4).map(term => `<p>${term}</p>`).join('')}
         <p class="proto">Prototype · Use sample details. Applications stay in this browser.</p>
       </div>
     </div>

@@ -4,6 +4,9 @@
    browser share one world. PROTOTYPE DATA: departures and the 13:00 start are illustrative; prices are
    Marina's 13 Nov Bókun snapshot (per-person basis unverified); VAT 11% is illustrative (accountant). */
 
+import { COMPETENCIES, initialPolicy, MARKETS, screenApplication } from './filter-policy.js'
+import { principal, requireRole as checkRole, sessionsEnabled, STAFF } from './session.js'
+
 const KEY = 'solunet-proto-v1'
 const BPS = 10000
 
@@ -152,6 +155,8 @@ export function supplierForOrder(o) {
 }
 export const supplierIdForOrder = o => o.line.supplierId || (PILOT_IDS.includes(o.tourId) ? 'sup_1' : null)
 export function pauseSupplier(id) {
+  requireRole('admin')
+  if (sessionsEnabled()) refresh()
   const owner = supplier(id)
   if (!owner || owner.status !== 'active') return false
   owner.status = 'paused'
@@ -161,6 +166,8 @@ export function pauseSupplier(id) {
 }
 
 export function resumeSupplier(id) {
+  requireRole('admin')
+  if (sessionsEnabled()) refresh()
   const owner = supplier(id)
   if (!owner || owner.status !== 'paused') return false
   owner.status = 'active'
@@ -235,42 +242,158 @@ function toV4(s) {
   const orders = (s.orders || []).map(o => o.payments?.some(p => p.kind === 'capture') && !o.settlement ? { ...o, settlement: 'unknown' } : o)
   return { ...s, terms, orders, v: 4 }
 }
+// Keep the existing sale payload contract at v4. Upgrade the nested recruitment and audit schema to v5.
+function toSliceC(data) {
+  if (data.funnelSchema === 5 && data.intake.policy) return data
+  const policy = initialPolicy()
+  const upgraded = { ...data, funnelSchema: 5, intake: { ...data.intake, policy },
+    audit: (data.audit || []).map(event => ({ id: crypto.randomUUID(), role: 'legacy', ...event })) }
+  for (const app of upgraded.applications) {
+    app.cohort ||= policy.cohort
+    if (app.attempt) app.attempt.policy ||= structuredClone(policy)
+    if (app.id.startsWith('fixture-')) app.fixture = true
+  }
+  seedFilterExamples(upgraded)
+  for (const app of upgraded.applications) {
+    app.screening ||= screenApplication(app, { policy: app.attempt?.policy || policy, apps: upgraded.applications,
+      bank: TEST_BANK, capacity: { left: 1 }, sellerNumber: id => upgraded.agents.find(agent => agent.id === id)?.sellerId })
+    app.screening.policyVersion ||= app.attempt?.policy?.version || policy.version
+  }
+  return upgraded
+}
+
+export const FILTER_EXAMPLES = [
+  ['fixture-9-0', 'Worked pass · 91/100'],
+  ['fixture-0-1', 'Human review · ambiguous market'],
+  ['fixture-0-2', 'Auto-decline · below pass mark'],
+  ['fixture-0-3', 'Waitlist · intake full'],
+  ['fixture-0-4', 'Duplicate · shared seller phone'],
+  ['fixture-0-5', 'Gated market · Taiwan'],
+  ['fixture-0-6', 'Timing flag · 2m 10s'],
+  ['fixture-0-7', 'Competency flag · selling floor'],
+]
+function seedFilterExamples(data) {
+  const policy = data.intake.policy
+  const seller = data.agents.find(agent => agent.id === 'agt_klara')
+  if (seller) seller.fixturePhone = '+1 202 555 0102'
+  const rows = FILTER_EXAMPLES.map(([id, label]) => {
+    const app = data.applications.find(row => row.id === id)
+    if (!app) return null
+    app.example = label
+    app.access ||= token()
+    app.accessUntil ||= iso(Date.now() + 30 * DAY)
+    if (app.state === 'not_qualified' || app.state === 'eligible') return app
+    return null
+  })
+  const [pass, flag, fail, waiting, duplicate, gate, fast, category] = rows
+  if (flag) { flag.markets = 'International audience'; flag.state = 'look_closer' }
+  if (waiting) {
+    waiting.state = 'waitlist'
+    const { answers, score, threshold, version } = waiting.attempt
+    waiting.attempt = { answers, score, threshold, version, fixtureOnly: true }
+    waiting.verifiedAt = null
+  }
+  if (duplicate) { duplicate.phone = seller?.fixturePhone; duplicate.state = 'look_closer' }
+  if (gate) { gate.markets = 'Taiwan'; gate.state = 'market_hold' }
+  if (fast) {
+    fast.attempt.startedAt = iso(Date.parse(fast.attempt.submittedAt) - 130_000)
+    fast.state = 'look_closer'
+  }
+  if (category) category.state = 'look_closer'
+  for (const [closedId, openId] of [['fixture-10-0', 'fixture-1-1'], ['fixture-11-0', 'fixture-2-1']]) {
+    const held = data.applications.find(app => app.id === closedId && app.state === 'eligible')
+    const eligible = data.applications.find(app => app.id === openId && app.state === 'not_qualified')
+    if (!held || !eligible) continue
+    held.state = 'market_hold'
+    eligible.state = 'eligible'
+    eligible.attempt.answers = Object.fromEntries(TEST_BANK.map(item => [item.id, item.correct]))
+    eligible.attempt.score = scoreAttempt(eligible.attempt.answers)
+    eligible.reviewAt = eligible.attempt.submittedAt
+  }
+  for (const app of [flag, duplicate, gate, fast, category].filter(Boolean)) {
+    app.attempt.answers = Object.fromEntries(TEST_BANK.map(item => [item.id,
+      app === category && COMPETENCIES.selling.includes(item.id) ? (item.correct + 1) % item.options.length : item.correct]))
+    app.attempt.score = scoreAttempt(app.attempt.answers)
+    app.reviewAt = app.attempt.submittedAt
+    app.assignedTo = 'reviewer'
+  }
+  for (const app of [pass, flag, fail, waiting, duplicate, gate, fast, category].filter(Boolean)) {
+    app.screening = screenApplication(app, { policy, apps: data.applications, bank: TEST_BANK,
+      sellerNumber: id => data.agents.find(agent => agent.id === id)?.sellerId, capacity: { left: 1 } })
+    if (app === duplicate && seller) app.screening.checks[2] = { ...app.screening.checks[2], outcome: 'Flag', reason: `Duplicate phone with ${seller.sellerId}` }
+  }
+}
+
 function load() {
   try {
     const s = JSON.parse(localStorage.getItem(KEY) || 'null')
-    if (s?.v === 4) return s
-    if (s?.v === 3) { const m = toV4(s); localStorage.setItem(KEY, JSON.stringify(m)); return m }
+    if (s?.v === 4 || s?.v === 5) {
+      const upgraded = toSliceC(s)
+      if (upgraded !== s) localStorage.setItem(KEY, JSON.stringify(upgraded))
+      return upgraded
+    }
+    if (s?.v === 3) { const m = toSliceC(toV4(s)); localStorage.setItem(KEY, JSON.stringify(m)); return m }
     if (s?.v === 1 || s?.v === 2) {
       const agents = s.agents.map(({ mt, ...a }) => ({ ...a, sellerId: a.sellerId || mt }))
       const migrated = { ...s, ...(s.v === 1 ? seedFunnel() : {}), ...structuredClone(CATALOGUE), agents,
         grants: agents.filter(a => a.state === 'active').flatMap(a => pilotGrants(a.id, 'Marina pilot backfill')), v: 3 }
-      const m4 = toV4(migrated)
+      const m4 = toSliceC(toV4(migrated))
       localStorage.setItem(KEY, JSON.stringify(m4))
       return m4
     }
   } catch {}
-  const s = seed(); try { localStorage.setItem(KEY, JSON.stringify(s)) } catch {} ; return s
+  const s = toSliceC(seed()); try { localStorage.setItem(KEY, JSON.stringify(s)) } catch {} ; return s
 }
 function save() { try { localStorage.setItem(KEY, JSON.stringify(S)) } catch {} }
-export function reset() { S = seed(); save() }
+export function reset() { requireRole('admin'); S = toSliceC(seed()); save(); ensureDemoShares() }
 export function refresh() { S = load() }
 window.addEventListener('storage', e => { if (e.key === KEY) S = load() })
 
-export const state = () => S
-const uid = p => `${p}_${Math.random().toString(36).slice(2, 10)}`
+export function sessionAllowed(actor) {
+  if (!actor) return false
+  if (actor.role !== 'agent' && !actor.employee) return true
+  const seller = findAgent(actor.id)
+  return Boolean(seller && (seller.accessRevision || 0) === (actor.revision || 0) && (!actor.employee || seller.state === 'active'))
+}
+function requireRole(...roles) {
+  const actor = checkRole(...roles)
+  if (actor && !sessionAllowed(actor)) throw new Error('permission_denied')
+  return actor
+}
+
+export const state = () => { if (sessionsEnabled()) throw new Error('permission_denied'); return S }
+const uid = p => `${p}_${crypto.randomUUID()}`
 const token = () => Array.from(crypto.getRandomValues(new Uint8Array(12)), b => b.toString(16).padStart(2, '0')).join('')
-function log(actor, action, subject, detail, at = new Date().toISOString()) { S.audit.unshift({ at, actor, action, subject, detail }) }
+function log(actor, action, subject, detail, at = new Date().toISOString(), extra = {}) {
+  const identity = extra.identity || principal()
+  const { identity: _identity, ...fields } = extra
+  S.audit.unshift({ id: crypto.randomUUID(), at, actor: identity?.name || actor, actorId: identity?.id,
+    role: identity?.role || 'system', action, subject, detail, policyVersion: S.intake.policy?.version, ...fields })
+}
+export function recordSession(action, actor, reason = '') {
+  refresh()
+  if (actor) { log(actor.name, 'session.' + action, actor.role, reason, iso(), { identity: actor }); save() }
+}
 
 // ---------- agents ----------
-export const agents = () => S.agents
-export const agent = id => S.agents.find(a => a.id === id)
-export const agentBySellerId = value => {
+export const agents = () => { requireRole('admin'); return S.agents }
+const findAgent = id => S.agents.find(a => a.id === id)
+export function agent(id) {
+  const seller = findAgent(id)
+  if (!seller || !sessionsEnabled() || principal()?.role === 'admin') return seller
+  const { name, sellerId, state, city, activatedAt } = seller
+  return { id, name, sellerId, state, city, activatedAt }
+}
+const findSellerCode = value => {
   const code = String(value || '').trim().toUpperCase()
   return /^[A-Z]{2,6}-[0-9]{5}$/.test(code) ? S.agents.find(a => a.sellerId === code) : undefined
 }
-export const me = () => agent(S.currentAgent)
-export function switchAgent(id) { S.currentAgent = id; save() }
+export const agentBySellerId = value => agent(findSellerCode(value)?.id)
+export const me = () => findAgent(sessionsEnabled() ? requireRole('agent').id : S.currentAgent)
+export function switchAgent(id) { if (sessionsEnabled()) throw new Error('permission_denied'); S.currentAgent = id; save() }
 export function setDiscount(bps) {
+  if (sessionsEnabled()) refresh()
+  if (me()?.state !== 'active') throw new Error('not_granted')
   const cap = Math.max(0, ...TOURS.map(t => agentOffer(t).cap ?? 0))
   if (!Number.isInteger(bps) || bps < 0 || bps > cap) throw new Error('discount_out_of_range')
   me().discountBps = bps; save()
@@ -297,17 +420,21 @@ export function departure(tourId, date, startTimeId) {
 
 // ---------- links and quotes ----------
 export function createLink(tourId = null, source = 'link') {
+  if (sessionsEnabled()) refresh()
   if (me()?.state !== 'active') throw new Error('not_granted')
   if (tourId) {
     const t = tour(tourId), policy = t ? agentOffer(t) : { error: 'offer_unavailable' }
     if (policy.error) throw new Error(policy.error)
   }
-  const k = token(); S.links.push({ k, agentId: S.currentAgent, tourId, source, at: new Date().toISOString(), expires: '2027-11-18T00:00:00Z', revoked: false })
+  const k = token(); S.links.push({ k, agentId: me().id, tourId, source, at: new Date().toISOString(), expires: '2027-11-18T00:00:00Z', revoked: false })
+  me().lastActivityAt = iso()
   save(); return k
 }
 export const link = k => S.links.find(l => l.k === k)
 export function createQuote({ tourId, date, startTimeId, pax, customer, email, discountBps }) {
+  if (sessionsEnabled()) refresh()
   const t = tour(tourId), a = me()
+  if (a?.state !== 'active') throw new Error('not_granted')
   if (!t) throw new Error('offer_unavailable')
   const policy = salePolicy(t, a)
   if (policy.error) throw new Error(policy.error)
@@ -318,11 +445,32 @@ export function createQuote({ tourId, date, startTimeId, pax, customer, email, d
   const q = { k: token(), id: uid('q'), agentId: a.id, tourId: t.id, date, startTimeId: Number(startTimeId), time: dep.time, pax, customer, email,
     kind: 'quote', line, listMinor: line.listGrossMinor, discountBps: line.discountBps, totalMinor: line.customerGrossMinor, agentAmountMinor: line.agentAmountMinor,
     created: new Date().toISOString(), expires: new Date(Date.now() + 24 * 3600e3).toISOString(), orderId: null, opened: null }
+  a.lastActivityAt = q.created
   S.quotes.push(q); log(a.sellerId, 'quote.created', q.id, `${t.title} ${date} ${dep.time} x${pax}`); save(); return q
 }
-export const quote = k => S.quotes.find(q => q.k === k || q.id === k)
-export const myQuotes = () => S.quotes.filter(q => q.agentId === S.currentAgent).slice().reverse()
-export function markOpened(q) { if (!q.opened) { q.opened = new Date().toISOString(); save() } }
+const findQuote = key => S.quotes.find(q => q.k === key || q.id === key)
+export function quote(key) {
+  if (!sessionsEnabled()) return findQuote(key)
+  const q = S.quotes.find(item => item.k === key)
+  if (!q) return
+  const { email, ...guest } = q
+  return guest
+}
+export function quoteFailures(key) {
+  const q = quote(key)
+  return q ? S.orders.filter(order => order.quoteId === q.id && order.state === 'failed').length : 0
+}
+export const myQuotes = () => S.quotes.filter(q => q.agentId === me().id).slice().reverse()
+export const myQuote = id => myQuotes().find(q => q.id === id)
+export const myOrder = id => salesFor(me().id).find(o => o.id === id)
+export const signInAgents = () => S.agents.filter(a => ['active', 'suspended'].includes(a.state)).map(a => ({
+  id: a.id, name: a.name, revision: a.accessRevision || 0, sellerId: a.sellerId, email: a.email || `${a.id.replace('agt_', '')}@example.com`, state: a.state,
+}))
+export function markOpened(q) {
+  if (sessionsEnabled()) refresh()
+  const saved = S.quotes.find(row => row.k === q.k)
+  if (saved && !saved.opened) { saved.opened = new Date().toISOString(); save() }
+}
 
 // ---------- checkout (mirrors startCheckout: errors use the real codes) ----------
 export function sizeError(t, pax) {
@@ -342,7 +490,7 @@ export function preview({ tourId, date, startTimeId, pax, refKey, quoteKey, code
   let credit = null, why = null
   const now = new Date().toISOString()
   // A typed code is a promise: a wrong or inactive one is an error even when another credit exists (src/orders.ts).
-  const codeAgent = code && code.trim() ? agentBySellerId(code) : null
+  const codeAgent = code && code.trim() ? findSellerCode(code) : null
   if (code && code.trim() && (!codeAgent || codeAgent.state !== 'active')) return { error: 'code_invalid', line: salePolicy(t, null).error ? null : quoteLine(t, pax, null) }
   if (quoteKey) {
     const q = quote(quoteKey)
@@ -350,14 +498,14 @@ export function preview({ tourId, date, startTimeId, pax, refKey, quoteKey, code
     if (q.orderId && orderById(q.orderId)?.state !== 'failed') return { error: 'quote_used', orderId: q.orderId }
     if (q.expires <= now) return { error: 'quote_expired' }
     if (q.tourId !== t.id || q.date !== date || q.startTimeId !== Number(startTimeId) || q.pax !== pax) return { error: 'quote_mismatch' }
-    const qa = agent(q.agentId); if (!qa || qa.state !== 'active') return { error: 'quote_invalid' }
+    const qa = findAgent(q.agentId); if (!qa || qa.state !== 'active') return { error: 'quote_invalid' }
     credit = qa; why = 'quote'
   } else if (codeAgent) {
     credit = codeAgent; why = 'code'
   } else if (refKey) {
     const l = link(refKey)
     if (l && !l.revoked && l.expires > now) {
-      const a = agent(l.agentId)
+      const a = findAgent(l.agentId)
       if ((l.tourId && l.tourId !== t.id) || (l.tourId && a?.state !== 'active')) return { error: 'not_granted' }
       if (a?.state === 'active') { credit = a; why = 'visit' }
     }
@@ -399,7 +547,7 @@ export function checkout(input) {
   }
   o.history.push({ at: o.created, what: 'Checkout started', detail: p.credit ? `credited to ${p.credit.sellerId} (${p.why})` : 'direct sale, no seller' })
   S.orders.push(o)
-  if (o.quoteId) quote(o.quoteId).orderId = o.id
+  if (o.quoteId) findQuote(o.quoteId).orderId = o.id
   save()
   return { ok: true, orderId: o.id, state: o.state, checkoutUrl: `pay.html?o=${o.id}`, total: p.line.customerGrossMinor, currency: p.line.currency, startTime: dep.time,
     credited: p.credit ? { sellerId: p.credit.sellerId, reason: p.why, discountMinor: p.line.discountGrossMinor } : null }
@@ -431,6 +579,7 @@ export function payOutcome(orderId, outcome, guest = {}) {
     o.payments.push({ kind: 'capture', id: `pay-${o.ref}`, amount: o.line.customerGrossMinor, at: now }); o.settlement = 'teya_hold'
     o.history.push({ at: now, what: `Paid and confirmed · ${o.ref}`, detail: `captured ${o.line.customerGrossMinor}` })
     settle(o, now)
+    recordConfirmed(o, now)
   }
   save(); return o
 }
@@ -450,8 +599,22 @@ function settle(o, at) {
     reason: o.state === 'cancelled' ? 'booking cancelled' : returned ? `refund ${returned}` : 'paid booking matched' })
 }
 
+function recordConfirmed(order, at) {
+  order.confirmedAt ||= at
+  const seller = findAgent(order.agentId)
+  if (!seller) return
+  seller.lastActivityAt = at
+  const app = S.applications.find(row => row.agentId === seller.id)
+  if (app && !app.firstSaleAt) {
+    app.firstSaleAt = at
+    log('Booking', 'application.first_sale', app.id, order.ref, at, { orderId: order.id, agentId: seller.id })
+  }
+}
+
 // Admin demo actions (slice 3 will replace these with the exception flow)
 export function simulateSupplierResponse(id, response) {
+  requireRole('admin')
+  if (sessionsEnabled()) refresh()
   const o = orderById(id)
   if (o?.state !== 'requested' || !['accepted', 'rejected', 'expired'].includes(response)) return
   const now = new Date().toISOString()
@@ -459,6 +622,7 @@ export function simulateSupplierResponse(id, response) {
     o.state = 'confirmed'
     if (!o.payments.some(p => p.kind === 'capture')) { o.payments.push({ kind: 'capture', id: `pay-${o.ref}`, amount: o.line.customerGrossMinor, at: now }); o.settlement = 'teya_hold' }
     settle(o, now)
+    recordConfirmed(o, now)
   } else {
     o.state = netPaid(o) > 0 ? 'exception' : 'failed'
     o.outcome = response
@@ -493,6 +657,8 @@ function refundFee(o, amount) {
 }
 /** Demo: the tour has run, so Teya pays the held money out to Marina and the commission becomes payable. */
 export function adminRunTourDay(id) {
+  requireRole('admin')
+  if (sessionsEnabled()) refresh()
   const o = orderById(id)
   if (!o || o.releasedAt || !['confirmed', 'partially_refunded'].includes(o.state)) return false
   const now = new Date().toISOString()
@@ -505,22 +671,30 @@ export function adminRunTourDay(id) {
 export const netPaid = o => o.payments.reduce((t, p) => t + (p.kind === 'capture' ? p.amount : -p.amount), 0)
 export const captured = o => o.payments.filter(p => p.kind === 'capture').reduce((t, p) => t + p.amount, 0)
 export const refunded = o => o.payments.filter(p => p.kind !== 'capture').reduce((t, p) => t + p.amount, 0)
-export function adminRefundHalf(id) { const o = orderById(id); if (!o || o.state !== 'confirmed') return; const now = new Date().toISOString()
+export function adminRefundHalf(id, reason = '') { if (requireRole('admin') && !reason.trim()) throw new Error('reason_required'); if (sessionsEnabled()) refresh(); const o = orderById(id); if (!o || o.state !== 'confirmed') return; const now = new Date().toISOString()
   const amt = Math.min(Math.round(o.line.customerGrossMinor / 2), netPaid(o)); if (amt <= 0) return; o.payments.push({ kind: 'refund', id: `ref-${o.ref}-${o.payments.length}`, amount: amt, at: now })
-  o.state = 'partially_refunded'; o.history.push({ at: now, what: 'Half refunded to the guest', detail: `refund ${amt} · ${refundFee(o, amt)}` }); settle(o, now); log('staff', 'refund.half', o.ref, String(amt)); save() }
-export function adminCancel(id) { const o = orderById(id); if (!o || !['confirmed', 'partially_refunded', 'requested'].includes(o.state)) return; const now = new Date().toISOString()
+  o.state = 'partially_refunded'; o.history.push({ at: now, what: 'Half refunded to the guest', detail: `refund ${amt} · ${refundFee(o, amt)}` }); settle(o, now); log('staff', 'refund.half', o.ref, String(amt), now, { reason }); save() }
+export function adminCancel(id, reason = '') { if (requireRole('admin') && !reason.trim()) throw new Error('reason_required'); if (sessionsEnabled()) refresh(); const o = orderById(id); if (!o || !['confirmed', 'partially_refunded', 'requested'].includes(o.state)) return; const now = new Date().toISOString()
   const paid = o.payments.filter(p => p.kind === 'capture').reduce((s, p) => s + p.amount, 0) - o.payments.filter(p => p.kind !== 'capture').reduce((s, p) => s + p.amount, 0)
   const feeNote = paid > 0 ? refundFee(o, paid) : ''
   if (paid > 0) o.payments.push({ kind: 'refund', id: `ref-${o.ref}-cancel`, amount: paid, at: now })
   const k = `${o.tourId}|${o.date}|${o.startTimeId}`; if (S.taken[k]) S.taken[k] = Math.max(0, S.taken[k] - o.pax)
-  o.state = 'cancelled'; o.history.push({ at: now, what: paid ? 'Cancelled, full refund' : 'Cancelled, nothing was charged', detail: paid ? `refund ${paid} · ${feeNote}` : '' }); settle(o, now); log('staff', 'booking.cancel', o.ref, ''); save() }
-export function togglePriceBump() { S.priceBump = S.priceBump ? 0 : 500; save(); return S.priceBump }
+  o.state = 'cancelled'; o.history.push({ at: now, what: paid ? 'Cancelled, full refund' : 'Cancelled, nothing was charged', detail: paid ? `refund ${paid} · ${feeNote}` : '' }); settle(o, now); log('staff', 'booking.cancel', o.ref, '', now, { reason }); save() }
+export function togglePriceBump() { requireRole('admin'); if (sessionsEnabled()) refresh(); S.priceBump = S.priceBump ? 0 : 500; save(); return S.priceBump }
 
 // ---------- reads ----------
 export function balanceOf(orderId) { return S.entries.filter(e => e.orderId === orderId).reduce((s, e) => s + e.amount, 0) }
 export function entriesOf(orderId) { return S.entries.filter(e => e.orderId === orderId) }
-export function salesFor(agentId) { return S.orders.filter(o => o.agentId === agentId).slice().reverse() }
-export function allOrders() { return S.orders.slice().reverse() }
+export function salesFor(agentId) {
+  const actor = requireRole('agent', 'admin')
+  if (actor?.role === 'agent' && actor.id !== agentId) throw new Error('permission_denied')
+  return S.orders.filter(o => o.agentId === agentId).slice().reverse().map(order => {
+    if (actor?.role !== 'agent') return order
+    const { guest, fingerprint, requestKey, from, ...visible } = order
+    return visible
+  })
+}
+export function allOrders() { requireRole('admin'); return S.orders.slice().reverse() }
 
 // ---------- recruitment ----------
 // This browser-only fixture contains the key. The real key and scoring stay server-side (src/funnel.ts).
@@ -625,40 +799,156 @@ export function reviewCapacity(now = Date.now()) {
 }
 export function intakeState(now = Date.now()) {
   if (S.intake.state !== 'open') return S.intake.state
-  const held = S.applications.filter(a => a.state !== 'waitlist' && (a.verifiedAt || Date.parse(a.releasedAt || a.createdAt) > now - DAY)).length
-  if (held >= S.intake.cap) return 'closed'
+  if (intakeUsage(now).used >= S.intake.cap) return 'closed'
   return reviewCapacity(now).left ? 'open' : 'capacity'
 }
-export function setIntake(patch) {
+export function intakeUsage(now = Date.now()) {
+  const records = S.applications.filter(app => !app.fixture)
+  const used = records.filter(app => app.state !== 'waitlist' && (app.verifiedAt || Date.parse(app.releasedAt || app.createdAt) > now - DAY)).length
+  return { used, cap: S.intake.cap, waiting: records.filter(app => app.state === 'waitlist').length }
+}
+export function setIntake(patch, reason = '') {
   return funnelWrite(() => {
+    const actor = requireRole('admin')
+    if (actor && !reason.trim()) throw new Error('reason_required')
+    const old = structuredClone(S.intake)
+    const current = S.intake.policy
+    if (patch.seenVersion !== undefined && patch.seenVersion !== current.version) throw new Error('stale_policy')
+    const policy = { ...current, ...Object.fromEntries(Object.entries(patch).filter(([key]) =>
+      ['cohort', 'floors', 'gates', 'fastSeconds', 'requireEvidence'].includes(key))) }
+    if (!policy.cohort?.trim() || !Array.isArray(policy.gates) || policy.gates.some(key => !Object.hasOwn(MARKETS, key))
+      || Object.keys(COMPETENCIES).some(key => !Number.isInteger(policy.floors?.[key]) || policy.floors[key] < 0 || policy.floors[key] > 100)
+      || !Number.isInteger(policy.fastSeconds) || policy.fastSeconds < 0 || policy.fastSeconds > TEST_MINUTES * 60
+      || typeof policy.requireEvidence !== 'boolean') throw new Error('intake_invalid')
+    if (patch.firstReset !== undefined) {
+      if (typeof patch.firstReset !== 'string' || !Number.isFinite(Date.parse(patch.firstReset))) throw new Error('intake_invalid')
+      S.intake.firstReset = iso(Date.parse(patch.firstReset))
+    }
     if (patch.state !== undefined && !['open', 'paused', 'closed'].includes(patch.state)) throw new Error('intake_invalid')
     for (const key of ['cap', 'reviewCapacity', 'passMark']) {
       if (patch[key] !== undefined && (!Number.isInteger(patch[key]) || patch[key] < 0 || (key === 'passMark' && patch[key] > 100))) throw new Error('intake_invalid')
     }
     for (const key of ['state', 'cap', 'reviewCapacity', 'passMark']) if (patch[key] !== undefined) S.intake[key] = patch[key]
+    S.intake.policy = { ...policy, version: current.version + 1, effectiveAt: iso() }
+    log('Marina admin', 'policy.update', policy.cohort, reason, iso(), { old, new: structuredClone(S.intake), reason })
+    return structuredClone(S.intake)
   })
 }
-export const applications = () => S.applications
-export const application = id => S.applications.find(a => a.id === id)
-export const applicationByAccess = (key, now = Date.now()) => key && S.applications.find(a => a.access === key && Date.parse(a.accessUntil) > now)
-export const demoApplication = () => application(S.demo.applicationId)
-export function visitRecruitment() { return funnelWrite(() => { S.demo.visitedAt ||= iso() }) }
+const findApplication = id => S.applications.find(a => a.id === id)
+const canReview = (app, actor) => !actor || actor.role === 'admin' || (app.assignedTo || 'reviewer') === actor.id
+export function applications() {
+  const actor = requireRole('admin', 'reviewer')
+  return S.applications.filter(app => canReview(app, actor))
+}
+export const application = id => applications().find(a => a.id === id)
+export const applicationFromInvitation = key => {
+  const invite = invitation(key)
+  if (!invite || Date.parse(invite.expiresAt) <= Date.now()) return
+  const app = findApplication(invite.appId)
+  return { name: app.name, email: app.email, access: app.access, linkKey: app.linkKey }
+}
+const findAccess = (key, now) => key && S.applications.find(a => a.access === key && Date.parse(a.accessUntil) > now)
+export const applicantLink = key => { const app = findAccess(key, Date.now()); return app ? { id: app.id } : null }
+const scopedAccess = (key, now = Date.now()) => {
+  const app = findAccess(key, now)
+  if (!sessionsEnabled()) return app
+  const actor = principal()
+  return actor?.role === 'applicant' && app?.id === actor.id ? app : null
+}
+export function applicationByAccess(key, now = Date.now()) {
+  const app = scopedAccess(key, now)
+  if (!app || !sessionsEnabled()) return app
+  const { id, name, state, createdAt, replyBy, verifiedAt, agentId, reviewAt, decidedAt, verify, reason, attempt } = app
+  const visibleAttempt = attempt && { ...attempt }
+  if (visibleAttempt) delete visibleAttempt.policy
+  return { id, name, state, createdAt, replyBy, verifiedAt, agentId, reviewAt, decidedAt, verify,
+    reason: ['rejected', 'reconsideration'].includes(state) ? reason : undefined, attempt: visibleAttempt }
+}
+export const intakePolicy = () => { requireRole('admin', 'reviewer', 'oversight'); return structuredClone(S.intake) }
+export function applicationScreening(app) {
+  const stored = application(app.id)
+  if (!stored) throw new Error('permission_denied')
+  return stored.screening || screen(stored, Date.now())
+}
+function screen(app, now) {
+  const policy = app.attempt?.policy || app.entryPolicy || S.intake.policy
+  return { policyVersion: policy.version, checkedAt: iso(now), ...screenApplication(app, {
+    policy, apps: S.applications, bank: TEST_BANK, sellerNumber: id => agent(id)?.sellerId, capacity: reviewCapacity(now),
+    sellerPhones: S.agents.map(a => ({ phone: a.profile?.phone || a.fixturePhone, id: a.id })),
+  }) }
+}
+function funnelEvent(app, action, old, at, reason = '') {
+  log('Recruitment', 'application.' + action, app.id, reason, iso(at), {
+    old, new: app.state, reason, policyVersion: app.attempt?.policy?.version || app.entryPolicy?.version,
+  })
+}
 
-export function createApplication(raw, { now = Date.now(), guided = false, waitlist = false } = {}) {
+
+export function demoApplication() {
+  const app = findApplication(S.demo.applicationId)
+  return !sessionsEnabled() || app?.guided ? app : null
+}
+export function demoTrail() {
+  const app = demoApplication()
+  const seller = app && agent(app.agentId)
+  const active = seller?.state === 'active'
+  const fits = record => seller && record.agentId === seller.id && record.tourId === 'icecave'
+  const orders = S.orders.filter(fits)
+  const scope = (item, keys) => item && Object.fromEntries(keys.map(key => [key, item[key]]))
+  const story = scope(app, ['id', 'access', 'verifiedAt', 'state', 'reviewAt', 'agentId', 'firstSaleAt'])
+  if (story) story.tested = app.attempt?.submittedAt
+  return {
+    app: story,
+    seller: scope(seller, ['id', 'sellerId', 'name', 'state']), active, visited: S.demo.visitedAt,
+    invite: scope(invitationForRecord(app), ['token', 'expiresAt']),
+    quote: scope(S.quotes.findLast(q => fits(q) && Date.parse(q.expires) > Date.now()), ['k']),
+    shared: scope(S.links.findLast(link => fits(link) && !link.revoked), ['k']),
+    paid: orders.filter(o => o.confirmedAt && captured(o) > 0).map(o => scope(o, ['id', 'ref', 'why', 'state'])),
+    open: scope(orders.findLast(o => o.state === 'handed_off'), ['id']),
+    requested: scope(orders.find(o => o.state === 'requested'), ['id', 'ref']),
+  }
+}
+export function demoExamples() {
+  return FILTER_EXAMPLES.map(([id, label]) => ({ id, label, access: findApplication(id)?.access }))
+}
+
+export function visitRecruitment(source = '', stage = 'visit') {
   return funnelWrite(() => {
-    const input = Object.fromEntries(['name', 'country', 'email', 'languages', 'markets', 'salesExperience', 'tourismExperience', 'channels', 'links', 'source']
+    S.demo.visitedAt ||= iso()
+    if (!['visit', 'start'].includes(stage)) throw new Error('invalid_stage')
+    S.recruitmentTraffic ||= {}
+    const key = (source || 'Direct').slice(0, 120)
+    const previous = Object.hasOwn(S.recruitmentTraffic, key) ? S.recruitmentTraffic[key] : { visit: 0, start: 0 }
+    S.recruitmentTraffic = { ...S.recruitmentTraffic, [key]: { ...previous, [stage]: previous[stage] + 1 } }
+  })
+}
+
+export function createApplication(raw, { now = Date.now(), guided = false, waitlist = false, winterTrial = false } = {}) {
+  return funnelWrite(() => {
+    const input = Object.fromEntries(['name', 'country', 'email', 'languages', 'markets', 'salesExperience', 'tourismExperience', 'channels', 'links', 'source', 'phone', 'reference']
       .map(key => [key, String(raw[key] ?? '').trim()]))
     input.email = input.email.toLowerCase()
     const fields = ['name', 'country', 'languages', 'markets', 'salesExperience', 'tourismExperience', 'channels']
     if (fields.some(key => !input[key] || input[key].length > 1500) || !/^[^\s@]{1,64}@[^\s@]{1,190}\.[a-z]{2,24}$/i.test(input.email)) throw new Error('application_invalid')
+    if (sessionsEnabled() && raw.privacy !== 'on') throw new Error('application_invalid')
+    const repeated = S.applications.find(a => a.email === input.email)
+    if (repeated) {
+      log('Recruitment', 'application.duplicate_suppressed', repeated.id, 'Existing mailbox matched', iso(now))
+      return { ok: true, access: null, verify: null }
+    }
     const status = intakeState(now)
     if (status !== 'open' && !(status === 'closed' && waitlist)) throw new Error('intake_' + status)
-    if (S.applications.some(a => a.email === input.email)) return { ok: true, access: null, verify: null }
     const access = token()
     const verify = status === 'closed' ? null : token()
     const app = { ...input, id: 'app-' + crypto.randomUUID(), access, accessUntil: iso(now + 30 * DAY), verify, verifyUntil: iso(now + DAY),
       state: status === 'closed' ? 'waitlist' : 'submitted', createdAt: iso(now), replyBy: iso(now + 5 * DAY), notes: [] }
+    app.winterTrial = winterTrial
+    app.guided = guided
+    app.cohort = S.intake.policy.cohort
+    app.entryPolicy = structuredClone(S.intake.policy)
     S.applications.push(app)
+    app.screening = screen(app, now)
+    funnelEvent(app, 'submitted', null, now)
     // The guided story follows the demo link OR, failing that, the first application made in this browser,
     // so a presenter who opens the pages directly still sees the steps tick off.
     if (guided || !S.demo.applicationId) S.demo.applicationId = app.id
@@ -668,20 +958,23 @@ export function createApplication(raw, { now = Date.now(), guided = false, waitl
 
 export function releaseWaitlist(access, now = Date.now()) {
   return funnelWrite(() => {
-    const app = applicationByAccess(access, now)
+    const app = scopedAccess(access, now)
     if (app?.state !== 'waitlist' || intakeState(now) !== 'open') throw new Error('intake_unavailable')
     app.state = 'submitted'
+    if (app.attempt?.fixtureOnly) delete app.attempt
     app.releasedAt = iso(now)
     app.accessUntil = iso(now + 30 * DAY)
     app.verify = token()
     app.verifyUntil = iso(now + DAY)
     app.replyBy = iso(now + 5 * DAY)
+    app.screening = screen(app, now)
+    funnelEvent(app, 'waitlist_released', 'waitlist', now)
   })
 }
 
 export function resendVerification(access, now = Date.now()) {
   return funnelWrite(() => {
-    const app = applicationByAccess(access, now)
+    const app = scopedAccess(access, now)
     if (app?.state !== 'submitted') throw new Error('verify_invalid')
     app.verify = token()
     app.verifyUntil = iso(now + DAY)
@@ -695,23 +988,25 @@ export function verifyEmail(key, now = Date.now()) {
     app.verify = null
     app.verifiedAt = iso(now)
     app.state = 'verified'
+    app.screening = screen(app, now)
+    funnelEvent(app, 'verified', 'submitted', now)
     return app.access
   })
 }
 
 export function startTest(access, now = Date.now()) {
   return funnelWrite(() => {
-    const app = applicationByAccess(access, now)
+    const app = scopedAccess(access, now)
     if (app?.attempt?.submittedAt || app?.attempt?.expiredAt) throw new Error('attempt_used')
     if (app?.state !== 'verified') throw new Error('test_not_available')
     if (app.attempt && Date.parse(app.attempt.endsAt) <= now) throw new Error('test_expired')
     app.attempt ||= { id: 'attempt-' + crypto.randomUUID(), startedAt: iso(now), endsAt: iso(now + TEST_MINUTES * 60_000),
-      version: TEST_VERSION, threshold: S.intake.passMark, answers: {}, position: 0 }
+      version: TEST_VERSION, threshold: S.intake.passMark, policy: structuredClone(S.intake.policy), answers: {}, position: 0 }
     return app.attempt
   })
 }
 function activeAttempt(access, id, now) {
-  const attempt = applicationByAccess(access, now)?.attempt
+  const attempt = scopedAccess(access, now)?.attempt
   if (!attempt || attempt.id !== id) throw new Error('test_not_available')
   if (attempt.submittedAt || attempt.expiredAt) throw new Error('attempt_used')
   return attempt
@@ -730,7 +1025,10 @@ export function expireTest(access, id, now = Date.now()) {
     const attempt = activeAttempt(access, id, now)
     if (Date.parse(attempt.endsAt) > now) throw new Error('test_active')
     attempt.expiredAt = iso(now)
-    applicationByAccess(access, now).state = 'timed_out'
+    const app = scopedAccess(access, now)
+    app.state = 'timed_out'
+    app.screening = screen(app, now)
+    funnelEvent(app, 'timed_out', 'verified', now)
   })
 }
 export function submitTest(access, id, answers, now = Date.now()) {
@@ -742,9 +1040,16 @@ export function submitTest(access, id, answers, now = Date.now()) {
     attempt.answers = Object.fromEntries(TEST_BANK.map(item => [item.id, choices[item.id]]))
     attempt.score = scoreAttempt(attempt.answers)
     attempt.submittedAt = iso(now)
-    const app = applicationByAccess(access, now)
-    app.state = attempt.score >= attempt.threshold ? 'eligible' : 'not_qualified'
-    if (app.state === 'eligible') app.reviewAt = attempt.submittedAt
+    const app = scopedAccess(access, now)
+    app.screening = screen(app, now)
+    const { marketHold, passed, flags } = app.screening
+    app.state = !passed ? 'not_qualified' : marketHold ? 'market_hold' : flags ? 'look_closer' : 'eligible'
+    if (['eligible', 'look_closer'].includes(app.state)) {
+      app.reviewAt = attempt.submittedAt
+      app.assignedTo = 'reviewer'
+      app.assignedAt = attempt.submittedAt
+    }
+    funnelEvent(app, 'tested', 'verified', now)
     app.replyBy = iso(now + 5 * DAY)
     return attempt
   })
@@ -764,26 +1069,38 @@ function issueInvitation(app, now) {
   return invite
 }
 export const invitation = key => S.invitations.find(i => i.token === key && !i.revokedAt)
-export const invitationFor = app => S.invitations.find(i => i.appId === app?.id && !i.revokedAt)
+const invitationForRecord = app => S.invitations.find(i => i.appId === app?.id && !i.revokedAt)
+export const invitationFor = app => {
+  const actor = requireRole('applicant', 'reviewer', 'admin')
+  if (actor?.role === 'applicant' && actor.id !== app?.id) return
+  if (actor?.role === 'reviewer' && !canReview(findApplication(app?.id) || {}, actor)) return
+  return invitationForRecord(app)
+}
 export function recoverInvitation(access, now = Date.now()) {
   return funnelWrite(() => {
-    const app = applicationByAccess(access, now)
+    const app = scopedAccess(access, now)
     if (agent(app?.agentId)?.state !== 'invited') throw new Error('invite_invalid')
     const old = invitationFor(app)
     if (old) old.revokedAt = iso(now)
-    return issueInvitation(app, now)
+    const invite = issueInvitation(app, now)
+    log('Recruitment', 'invitation.reissue', app.id, 'Applicant requested a replacement', iso(now))
+    return invite
   })
 }
 export const REASONS = ['Product or policy understanding', 'Customer handling', 'Sales approach', 'Market or language fit', 'Other']
 export function reviewApplication(id, reviewer, decision, reason = '', now = Date.now(), seenRevision) {
   return funnelWrite(() => {
+    const actor = requireRole('reviewer', 'admin')
     const app = application(id)
-    if (!app || !['eligible', 'look_closer', 'reconsideration'].includes(app.state)
-      || (app.state === 'reconsideration' && decision === 'approve')
+    const previous = app?.state
+    if (actor) reviewer = actor.name
+    if (!app || !['eligible', 'look_closer', 'reconsideration', ...(actor?.role === 'admin' ? ['market_hold', 'not_qualified'] : [])].includes(app.state)
+      || (app.state === 'reconsideration' && decision === 'approve' && actor?.role !== 'admin')
       || (seenRevision !== undefined && seenRevision !== (app.reviewRevision ?? 0))) throw new Error('not_reviewable')
     if (!['approve', 'look_closer', 'reject'].includes(decision)) throw new Error('decision_invalid')
     if (!reviewer?.trim()) throw new Error('reviewer_required')
-    if (decision === 'reject' && !reason?.trim()) throw new Error('reason_required')
+    const override = decision === 'approve' && ['reconsideration', 'market_hold', 'not_qualified'].includes(previous)
+    if ((decision === 'reject' || override || (actor && previous === 'look_closer' && decision === 'approve')) && !reason?.trim()) throw new Error('reason_required')
     if (!reviewCapacity(now).left && decision !== 'look_closer') throw new Error('intake_capacity')
     if (decision === 'approve') {
       app.agentId = 'agt-' + crypto.randomUUID()
@@ -795,26 +1112,38 @@ export function reviewApplication(id, reviewer, decision, reason = '', now = Dat
     }
     app.state = { approve: 'approved', reject: 'rejected', look_closer: 'look_closer' }[decision]
     app.reviewer = reviewer.trim()
+    app.firstTouchAt ||= iso(now)
+    app.reviewHistory ||= []
+    app.reviewHistory.push({ previous, decision, reviewer: app.reviewer, reason: reason?.trim() || '', at: iso(now) })
     app.reason = reason?.trim() || ''
     app.decidedAt = iso(now)
     app.reviewRevision = (app.reviewRevision ?? 0) + 1
-    log(app.reviewer, `application.${decision}`, id, app.reason, app.decidedAt)
+    funnelEvent(app, decision, previous, now, app.reason)
+    if (override) funnelEvent(app, 'override', previous, now, app.reason)
     return app
   })
 }
 export function addReviewNote(id, by, content, now = Date.now()) {
   return funnelWrite(() => {
+    const actor = requireRole('admin', 'reviewer')
+    if (actor) by = actor.name
     const app = application(id)
     if (!app || !content.trim() || !by.trim()) throw new Error('note_invalid')
+    app.firstTouchAt ||= iso(now)
     app.notes.push({ by, text: content.trim().slice(0, 1500), at: iso(now) })
+    funnelEvent(app, 'note', app.state, now)
   })
 }
 export function reconsider(access, content, now = Date.now()) {
   return funnelWrite(() => {
-    const app = applicationByAccess(access, now)
+    const app = scopedAccess(access, now)
     if (!['rejected', 'not_qualified', 'timed_out'].includes(app?.state) || !content.trim()) throw new Error('reconsideration_invalid')
     app.notes.push({ by: 'Applicant · reconsideration', text: content.trim().slice(0, 1500), at: iso(now) })
+    const previous = app.state
     app.state = 'reconsideration'
+    app.appealedAt = iso(now)
+    app.assignedTo ||= 'reviewer'
+    funnelEvent(app, 'appealed', previous, now)
     app.reviewRevision = (app.reviewRevision ?? 0) + 1
     app.reviewAt = iso(now)
     app.replyBy = iso(now + 5 * DAY)
@@ -823,19 +1152,24 @@ export function reconsider(access, content, now = Date.now()) {
 export function activate(key, { email, emailVerified, termsVersion, address, phone }, now = Date.now()) {
   return funnelWrite(() => {
     const inv = invitation(key)
-    const a = agent(inv?.agentId)
-    const app = application(inv?.appId)
+    const a = findAgent(inv?.agentId)
+    const app = findApplication(inv?.appId)
     if (!inv || inv.consumedAt || Date.parse(inv.expiresAt) <= now || a?.state !== 'invited') throw new Error('invite_invalid')
     if (!emailVerified || email?.trim().toLowerCase() !== app.email) throw new Error('identity_mismatch')
     if (termsVersion !== TERMS_VERSION) throw new Error('terms_required')
     if (!address?.trim() || !phone?.trim()) throw new Error('profile_required')
     a.state = 'active'
-    S.grants.push(...pilotGrants(a.id, app.reviewer))
+    a.email = app.email
+    a.country = app.country
+    const defaults = pilotGrants(a.id, app.reviewer).filter(grant => (!app.winterTrial || grant.tourId === 'icecave')
+      && !S.grants.some(saved => saved.agentId === a.id && saved.tourId === grant.tourId))
+    S.grants.push(...defaults)
     a.note = 'Activated through Sölunet'
     a.activatedAt = inv.consumedAt = iso(now)
     a.terms = { version: termsVersion, acceptedAt: iso(now) }
     a.profile = { address: address.trim(), phone: phone.trim() }
     S.currentAgent = a.id
+    funnelEvent(app, 'activated', 'approved', now)
     return a
   })
 }
@@ -849,7 +1183,7 @@ function ensureDemoShares() {
     changed = true
   }
   if (!S.quotes.some(q => q.k === DEMO_QUOTE)) {
-    const t = tour('icecave'), a = agent('agt_klara'), dep = departure('icecave', '2026-12-12', 2774517)
+    const t = tour('icecave'), a = findAgent('agt_klara'), dep = departure('icecave', '2026-12-12', 2774517)
     if (t && a && dep) {
       const line = quoteLine(t, 2, a, a.discountBps)
       S.quotes.push({ k: DEMO_QUOTE, id: 'q_demo_icecave', agentId: a.id, tourId: t.id, date: '2026-12-12', startTimeId: 2774517, time: dep.time, pax: 2,
@@ -861,3 +1195,340 @@ function ensureDemoShares() {
   if (changed) save()
 }
 try { ensureDemoShares() } catch {}
+
+export function reviewActors() {
+  requireRole('admin', 'reviewer', 'oversight')
+  const invited = S.agents.filter(seller => seller.employeeAt && seller.state === 'active')
+    .map(seller => ({ id: seller.id, name: seller.name, role: 'reviewer' }))
+  return [...STAFF.filter(actor => actor.role === 'reviewer'), ...invited]
+}
+export function assignApplication(id, assignee, reason, revision) {
+  return funnelWrite(() => {
+    requireRole('admin')
+    const app = application(id)
+    if (!app || (app.reviewRevision ?? 0) !== revision) throw new Error('not_reviewable')
+    if (!reviewActors().some(actor => actor.id === assignee) || !reason.trim()) throw new Error('reason_required')
+    const previous = app.assignedTo || 'reviewer'
+    app.assignedTo = assignee
+    app.assignedAt = iso()
+    app.reviewRevision = revision + 1
+    log('Marina admin', 'application.assign', id, reason, app.assignedAt, { old: previous, new: assignee, reason })
+  })
+}
+
+export function recordSecondOpinion(id, reason, revision) {
+  return funnelWrite(() => {
+    const actor = requireRole('admin')
+    const app = application(id)
+    if (!app || (app.reviewRevision ?? 0) !== revision) throw new Error('not_reviewable')
+    if (!reason.trim()) throw new Error('reason_required')
+    const at = iso()
+    app.notes.push({ by: actor?.name || 'Marina admin', text: reason.trim(), at })
+    app.reviewRevision = revision + 1
+    funnelEvent(app, 'second_opinion', app.state, Date.parse(at), reason.trim())
+  })
+}
+
+const dateInRange = (date, { from, to }) => Boolean(date) && (!from || date.slice(0, 10) >= from) && (!to || date.slice(0, 10) <= to)
+export function reportApplications(filters = {}) {
+  requireRole('admin')
+  return matchingApplications(filters).map(app => ({
+    id: app.id, name: app.name, cohort: app.cohort, source: app.source || 'Direct', market: app.markets,
+    applied: app.createdAt, verified: app.verifiedAt, tested: app.attempt?.submittedAt,
+    score: app.attempt?.score, passMark: app.attempt?.threshold, policy: app.attempt?.policy?.version || app.entryPolicy?.version,
+    decision: app.state, reviewer: app.reviewer, seller: agent(app.agentId)?.sellerId, firstSale: firstSaleDate(app),
+  }))
+}
+function matchingApplications(filters) {
+  return S.applications.filter(app => (filters.fixtures || !app.fixture)
+    && (!filters.cohort || app.cohort === filters.cohort)
+    && (!filters.source || (app.source || 'Direct') === filters.source)
+    && (!filters.market || app.markets.toLowerCase().includes(filters.market.toLowerCase()))
+    && (!filters.decision || app.state === filters.decision)
+    && dateInRange(app.createdAt, filters))
+}
+function firstSaleDate(app) {
+  if (!app.agentId) return null
+  return app.firstSaleAt || S.orders.filter(order => order.agentId === app.agentId && order.ref && captured(order) > 0
+    && (order.confirmedAt || ['confirmed', 'partially_refunded', 'refunded', 'cancelled'].includes(order.state)))
+    .map(order => order.confirmedAt || order.payments.find(payment => payment.kind === 'capture')?.at).filter(Boolean).sort()[0] || null
+}
+
+export function oversightReport(filters = {}, now = Date.now()) {
+  requireRole('admin', 'oversight')
+  const cohort = matchingApplications(filters)
+  const stages = [
+    ['Applied', app => app.createdAt],
+    ['Verified', app => app.verifiedAt],
+    ['Tested', app => app.attempt?.submittedAt],
+    ['Passed', app => app.attempt?.submittedAt && app.attempt.score >= app.attempt.threshold ? app.attempt.submittedAt : null],
+    ['Approved', app => app.agentId && app.decidedAt],
+    ['Activated', app => agent(app.agentId)?.activatedAt],
+    ['First sale', firstSaleDate],
+  ]
+  const median = values => {
+    const sorted = values.sort((a, b) => a - b)
+    if (!sorted.length) return null
+    const mid = Math.floor(sorted.length / 2)
+    return sorted.length % 2 ? sorted[mid] : (sorted[mid] + sorted[mid - 1]) / 2
+  }
+  const funnel = stages.map(([label, date], index) => {
+    const prior = stages[index - 1]?.[1]
+    const previous = prior ? cohort.filter(prior).length : null
+    const count = cohort.filter(date).length
+    const progressed = prior ? cohort.filter(app => prior(app) && date(app)).length : null
+    const elapsed = prior ? median(cohort.filter(app => prior(app) && date(app))
+      .map(app => Math.max(0, Date.parse(date(app)) - Date.parse(prior(app))) / HOUR)) : null
+    return { label, count, previous, progressed, elapsed }
+  })
+  const backlog = cohort.filter(app => ['eligible', 'look_closer', 'reconsideration'].includes(app.state))
+  const decisions = new Map()
+  for (const app of cohort) for (const item of app.reviewHistory || []) {
+    const attempt = app.attempt
+    const score = attempt?.score == null ? 'No score' : `${Math.floor(Math.min(attempt.score, 99) / 10) * 10}–${Math.floor(Math.min(attempt.score, 99) / 10) * 10 + 9}${attempt.score >= 90 ? ' / 100' : ''}`
+    const flags = app.screening?.checks.filter(check => check.outcome === 'Flag').map(check => check.label).join(', ') || 'No flags'
+    const key = [item.reviewer, app.cohort, score, attempt?.version || '—', attempt?.policy?.version || '—', flags]
+    const id = JSON.stringify(key)
+    const row = decisions.get(id) || { reviewer: item.reviewer, cohort: app.cohort, score, test: key[3], policy: key[4], flags, approve: 0, reject: 0, look_closer: 0, override: 0 }
+    row[item.decision]++
+    if (item.decision === 'approve' && ['reconsideration', 'market_hold', 'not_qualified'].includes(item.previous)) row.override++
+    decisions.set(id, row)
+  }
+  const workload = reviewActors().map(actor => {
+    const queue = backlog.filter(app => (app.assignedTo || 'reviewer') === actor.id)
+    return { reviewer: actor.name, assigned: queue.length, untouched: queue.filter(app => !app.firstTouchAt).length,
+      overdue: queue.filter(app => Date.parse(app.replyBy) < now).length,
+      oldestHours: queue.length ? Math.max(0, ...queue.map(app => (now - Date.parse(app.reviewAt || app.createdAt)) / HOUR)) : null }
+  })
+  const branch = ['waitlist', 'timed_out', 'look_closer', 'reconsideration', 'market_hold', 'not_qualified']
+    .map(state => [state, cohort.filter(app => app.state === state).length])
+  branch.push(['appeals_received', cohort.filter(app => app.appealedAt).length])
+  const ids = new Set(cohort.map(app => app.agentId).filter(Boolean))
+  branch.push(['later_refunds', S.orders.filter(order => ids.has(order.agentId) && refunded(order) > 0).length])
+  branch.push(['payment_exceptions', S.orders.filter(order => ids.has(order.agentId) && order.state === 'exception').length])
+  const cohortSellers = [...ids].map(findAgent).filter(Boolean)
+  branch.push(['pilot_feedback_recorded', cohortSellers.filter(seller => seller.pilotFeedback).length])
+  branch.push(['open_to_referring', cohortSellers.filter(seller => seller.pilotFeedback?.referral === 'yes').length])
+  branch.push(['manual_payout_reference_recorded', cohortSellers.filter(seller => Object.keys(seller.payouts || {}).length).length])
+  const traffic = [...new Set([...Object.keys(S.recruitmentTraffic || {}), ...cohort.map(app => app.source || 'Direct')])]
+    .filter(source => !filters.source || filters.source === source).map(source => {
+      const matched = cohort.filter(app => (app.source || 'Direct') === source)
+      const count = S.recruitmentTraffic && Object.hasOwn(S.recruitmentTraffic, source) ? S.recruitmentTraffic[source] : { visit: 0, start: 0 }
+      const productive = matched.filter(firstSaleDate).length
+      const cohortName = filters.cohort || S.intake.policy.cohort
+      const spend = S.campaignSpend?.find(row => row.source === source && row.cohort === cohortName)
+      const cost = !filters.market && !filters.from && !filters.to && !filters.decision && !filters.fixtures && filters.cohort && spend && productive
+        ? Math.round(spend.amount / productive) : null
+      return [source, { ...count, applied: matched.length, productive, cost }]
+    })
+  return { funnel, backlog: backlog.length, workload, decisions: [...decisions.values()], branch, traffic, capacity: reviewCapacity(now), asOf: iso(now) }
+}
+
+export function auditTrail(filters = {}) {
+  const actor = requireRole('admin', 'oversight')
+  return S.audit.filter(event => (!filters.action || event.action === filters.action)
+    && dateInRange(event.at, filters)).map(event => {
+    if (actor?.role !== 'oversight') return event
+    const aggregateActor = ['admin', 'reviewer', 'oversight'].includes(event.role) ? event.actor : event.role
+    return { id: event.id, at: event.at, actor: aggregateActor, role: event.role, action: event.action,
+      subject: event.action.startsWith('application.') ? event.subject : '', policyVersion: event.policyVersion, corrects: event.corrects }
+  }).filter(event => !filters.actor || event.actor === filters.actor)
+}
+
+export function recordExport(kind, filters, count, purpose) {
+  return funnelWrite(() => {
+    requireRole('admin')
+    if (!purpose.trim() || !['applications', 'audit', 'sales'].includes(kind) || !Number.isInteger(count) || count < 0) throw new Error('export_invalid')
+    log('Marina admin', 'export.' + kind, kind, purpose.trim(), iso(), { reason: purpose.trim(), filters, count })
+  })
+}
+
+export function agentRoster(filters = {}) {
+  requireRole('admin')
+  return S.agents.map(seller => {
+    const app = S.applications.find(app => app.agentId === seller.id)
+    const orders = S.orders.filter(order => order.agentId === seller.id && order.ref && captured(order) > 0
+      && dateInRange(order.payments.find(payment => payment.kind === 'capture').at, filters))
+    const confirmed = orders.filter(order => order.confirmedAt || ['confirmed', 'partially_refunded', 'cancelled'].includes(order.state))
+    const guests = confirmed.reduce((sum, order) => sum + order.pax, 0)
+    const gross = confirmed.reduce((sum, order) => sum + captured(order), 0)
+    const refunds = confirmed.reduce((sum, order) => sum + refunded(order), 0)
+    const lastBooking = orders.flatMap(order => order.payments).map(payment => payment.at).sort().at(-1)
+    const firstSale = app && firstSaleDate(app)
+    return {
+      id: seller.id, sellerId: seller.sellerId, name: seller.name, country: seller.country || app?.country,
+      state: seller.state, activatedAt: seller.activatedAt, lastActivityAt: [seller.lastActivityAt, seller.activatedAt, lastBooking].filter(Boolean).sort().at(-1),
+      grants: S.grants.filter(grant => grant.agentId === seller.id && !grant.revoked).map(grant => grant.tourId),
+      source: app?.source, market: app?.markets, approvalHours: firstSale ? Math.max(0, (Date.parse(firstSale) - Date.parse(app.decidedAt)) / HOUR) : null,
+      bookings: confirmed.length, guests, gross, refunds, repeat: confirmed.length > 1, employee: Boolean(seller.employeeAt), reason: seller.suspensionReason, appeal: seller.restrictionAppeal, pilotFeedback: seller.pilotFeedback,
+      methods: [...new Set(confirmed.map(order => order.why))].join(', '),
+    }
+  })
+}
+
+export function manageAgent(id, { action, tourId, reason, reference, month, referral }) {
+  return funnelWrite(() => {
+    const actor = requireRole('admin')
+    const seller = findAgent(id)
+    if (!seller || !reason?.trim()) throw new Error('agent_change_invalid')
+    const before = seller.state
+    const at = iso()
+    if (action === 'suspend' && seller.state === 'active') {
+      seller.state = 'suspended'
+      seller.suspensionReason = reason.trim()
+    } else if (action === 'reactivate' && seller.state === 'suspended') {
+      seller.state = 'active'
+      delete seller.suspensionReason
+    } else if (action === 'promote' && seller.state === 'active' && !seller.employeeAt) {
+      const app = S.applications.find(app => app.agentId === seller.id)
+      if (!app || !firstSaleDate(app)) throw new Error('trial_incomplete')
+      seller.employeeAt = at
+      seller.accessRevision = (seller.accessRevision || 0) + 1
+    } else if (['grant', 'revoke'].includes(action) && PILOT_IDS.includes(tourId)) {
+      const grant = S.grants.find(row => row.agentId === id && row.tourId === tourId && !row.revoked)
+      if (action === 'revoke' && grant) { grant.revoked = true; grant.revokedAt = at; grant.revokedBy = actor?.name }
+      else if (action === 'grant' && !grant) S.grants.push(...pilotGrants(id, actor?.name || 'Marina admin').filter(row => row.tourId === tourId))
+      else throw new Error('agent_change_invalid')
+    } else if (action === 'feedback' && ['yes', 'maybe', 'no', 'unknown'].includes(referral)) {
+      seller.pilotFeedback = { note: reason.trim().slice(0, 1500), referral, at }
+    } else if (action === 'payout' && /^\d{4}-(0[1-9]|1[0-2])$/.test(month) && reference?.trim()) {
+      seller.payouts ||= {}
+      if (seller.payouts[month]) throw new Error('payout_already_recorded')
+      const settled = S.orders.filter(order => order.agentId === seller.id && order.releasedAt?.startsWith(month))
+      seller.payouts[month] = { at, reference: reference.trim().slice(0, 120),
+        amounts: Object.fromEntries(settled.map(order => [order.id, balanceOf(order.id)])) }
+    } else throw new Error('agent_change_invalid')
+    log('Marina admin', 'agent.' + action, seller.sellerId, tourId || month || '', at, { old: before, new: seller.state, reason: reason.trim() })
+  })
+}
+
+export function agentProfile() {
+  const seller = me()
+  return {
+    name: seller.name, sellerId: seller.sellerId, email: seller.email, country: seller.country, state: seller.state,
+    profile: seller.profile, terms: seller.terms, activatedAt: seller.activatedAt, payoutStatus: seller.payoutStatus,
+    restriction: seller.suspensionReason, employee: Boolean(seller.employeeAt), restrictionAppealAt: seller.restrictionAppealAt,
+  }
+}
+
+export function updateProfile({ address, phone, payoutStatus, appeal }) {
+  return funnelWrite(() => {
+    requireRole('agent')
+    const seller = me()
+    if (appeal?.trim() && seller.state === 'suspended') {
+      seller.restrictionAppealAt = iso()
+      seller.restrictionAppeal = appeal.trim().slice(0, 1500)
+      log(seller.sellerId, 'agent.restriction_appeal', seller.sellerId, 'Seller requested reconsideration')
+    } else {
+      if (seller.state !== 'active' || !address?.trim() || !phone?.trim() || !['requested', 'pending'].includes(payoutStatus)) throw new Error('profile_required')
+      seller.profile = { address: address.trim().slice(0, 500), phone: phone.trim().slice(0, 80) }
+      seller.payoutStatus = payoutStatus
+      seller.lastActivityAt = iso()
+      log(seller.sellerId, 'agent.profile_updated', seller.sellerId, 'Profile updated')
+    }
+  })
+}
+
+export function promotedReviewer(seller) {
+  const account = findAgent(seller.id)
+  if (account?.state !== 'active' || !account.employeeAt) return null
+  return { id: account.id, name: account.name, role: 'reviewer', revision: account.accessRevision, home: 'm/applications.html', employee: true }
+}
+
+export function agentStatement(month) {
+  const seller = me()
+  const orders = salesFor(seller.id)
+  const rows = orders.flatMap(order => {
+    const items = [
+      ...order.payments.map(payment => ({ at: payment.at, kind: payment.kind, guest: payment.kind === 'capture' ? payment.amount : -payment.amount })),
+      ...entriesOf(order.id).map(entry => ({ at: entry.at, kind: entry.type, commission: entry.amount })),
+    ]
+    return items.map(item => ({ ...item, orderId: order.id, ref: order.ref, tour: tour(order.tourId).title }))
+  }).filter(item => item.at)
+  const months = [...new Set([iso().slice(0, 7), ...rows.map(row => row.at.slice(0, 7)), ...Object.keys(seller.payouts || {})])].sort().reverse()
+  const period = month || months[0]
+  const monthly = rows.filter(row => row.at.startsWith(period)).sort((a, b) => a.at.localeCompare(b.at))
+  const amount = type => orders.filter(order => commissionStatus(order) === type)
+    .reduce((sum, order) => sum + balanceOf(order.id)
+      - (seller.payouts?.[order.releasedAt?.slice(0, 7)]?.amounts?.[order.id] || 0), 0)
+  return { months, period, rows: monthly, held: amount('pending'), payable: amount('payable'), payout: seller.payouts?.[period] }
+}
+
+const MATERIAL_TOURS = ['icecave', 'eastfjords']
+const defaultMaterial = tourId => ({ tourId, revision: 1, state: 'draft', history: [] })
+export function materials() {
+  const actor = requireRole('agent', 'admin')
+  return MATERIAL_TOURS.map(id => S.materials?.[id] || defaultMaterial(id))
+    .filter(row => actor?.role !== 'agent' || !agentOffer(tour(row.tourId)).error)
+}
+export function updateMaterial(tourId, state, reason, seenRevision) {
+  return funnelWrite(() => {
+    const actor = requireRole('admin')
+    if (!MATERIAL_TOURS.includes(tourId) || !['published', 'withdrawn'].includes(state) || !reason.trim()) throw new Error('material_invalid')
+    S.materials ||= {}
+    const previous = S.materials[tourId] || defaultMaterial(tourId)
+    if (previous.revision !== seenRevision || previous.state === state) throw new Error('stale_material')
+    const at = iso()
+    const reviewer = actor?.name || 'Marina admin'
+    const event = { at, reviewer, state, reason: reason.trim() }
+    const record = { ...previous, revision: previous.revision + 1, state, at, reviewer, history: [...previous.history, event] }
+    S.materials[tourId] = record
+    log(reviewer, 'materials.' + state, tourId, reason, at, { old: previous.state, new: state, reason })
+  })
+}
+export function agentNotifications() {
+  const seller = me()
+  const orders = salesFor(seller.id)
+  const activation = seller.activatedAt ? [{ label: 'Seller account activated', at: seller.activatedAt, href: 'sell.html' }] : []
+  return [...activation, ...orders.flatMap(order => order.history
+    .filter(item => /Checkout started|guest left/i.test(item.what) === false)
+    .map(item => ({ label: item.what, at: item.at, href: 'sale.html?id=' + encodeURIComponent(order.id) })))]
+    .sort((a, b) => b.at.localeCompare(a.at))
+}
+
+export function expireDemoInvitation(id, revision) {
+  return funnelWrite(() => {
+    requireRole('admin')
+    const app = application(id)
+    const invite = invitationForRecord(app)
+    if (!app?.guided || !invite || invite.consumedAt || (app.reviewRevision ?? 0) !== revision) throw new Error('invite_invalid')
+    const at = iso()
+    const old = invite.expiresAt
+    invite.expiresAt = at
+    log('Marina admin', 'invitation.expire', app.id, 'Prototype recovery rehearsal', at, { old, new: at })
+  })
+}
+
+export function surgeProjection(completions, eligible, now = Date.now()) {
+  requireRole('admin', 'oversight')
+  if (![completions, eligible].every(value => Number.isInteger(value) && value >= 0) || eligible > completions) throw new Error('invalid_surge')
+  const capacity = reviewCapacity(now)
+  const { used, cap } = intakeUsage(now)
+  const slots = S.intake.state === 'open' ? Math.max(0, cap - used) : 0
+  const admitted = Math.min(completions, slots)
+  const expectedCases = completions ? Math.round(admitted * eligible / completions) : 0
+  const decisions = Math.min(expectedCases, capacity.left)
+  return { admitted, carryover: expectedCases - decisions, waiting: completions - admitted, decisions, reset: capacity.reset }
+}
+
+export function recordCampaignSpend(source, amount, reason) {
+  return funnelWrite(() => {
+    requireRole('admin')
+    if (!source.trim() || !Number.isSafeInteger(amount) || amount < 0 || !reason.trim()) throw new Error('invalid_spend')
+    const cohort = S.intake.policy.cohort
+    const previous = S.campaignSpend?.find(row => row.source === source && row.cohort === cohort)
+    S.campaignSpend = [...(S.campaignSpend || []).filter(row => row !== previous), { source, cohort, amount }]
+    log('Marina admin', 'campaign.spend', cohort, source, iso(), { old: previous?.amount, new: amount, reason })
+  })
+}
+
+export function appendAuditCorrection(eventId, reason) {
+  return funnelWrite(() => {
+    requireRole('admin')
+    const original = S.audit.find(event => event.id === eventId)
+    if (!original || !reason?.trim()) throw new Error('invalid_correction')
+    log('Marina admin', 'audit.correction', original.action.startsWith('application.') ? original.subject : '', reason.trim(), iso(), {
+      corrects: eventId, reason: reason.trim(), policyVersion: original.policyVersion,
+    })
+  })
+}
