@@ -64,8 +64,10 @@ function page(t) {
         <h1 class="tour-title reveal d1">${esc(d?.shortTitle || t.title)}</h1>
         <p class="tour-sub reveal d1">${esc(d?.excerpt || t.place)}</p>
         <p class="meta reveal d1">Run by ${esc(store.supplier(t.supplierId).name)} · licensed Icelandic travel agency</p>
-        <ul class="tour-chips reveal d2">${chips.map(c => `<li>${esc(c)}</li>`).join('')}
-          <li class="price-chip"><a href="#choose">Example price <b class="money">${isk(store.priceOf(t))}</b> ${esc(t.unit)} · See dates</a></li></ul>
+        <ul class="tour-chips reveal d2">${chips.map(c => `<li>${esc(c)}</li>`).join('')}</ul>
+        <div class="tour-decide reveal d2"><p class="p-price"><b class="money">${isk(store.priceOf(t))}</b> <span>${esc(t.unit)}</span></p>
+          <a class="btn primary" href="#choose">Choose a date</a>
+          <p class="meta">Example price · the price per person depends on your group size.</p></div>
       </header>
       <div class="reveal d2" id="gallery">${galleryGrid(photos, d?.shortTitle || t.title)}</div>
       <div class="grid2 tour-grid">
@@ -116,6 +118,7 @@ function page(t) {
         ${l2.discountGrossMinor ? `<div class="line save"><span>Discount from ${esc(p.credit.name)} (${pct(l2.discountBps)})</span><span>${isk(-l2.discountGrossMinor)}</span></div>` : ''}
         <div class="total"><span>You pay</span><b class="money">${isk(l2.customerGrossMinor)}</b></div>
       </div>` : ''}
+      ${d?.included?.length ? `<p class="meta">Included: ${esc(d.included.filter(x => !/^Local taxes$/i.test(x)).map(x => x.replace(/\.$/, '')).join(' · '))}</p>` : ''}
       <p class="meta">${esc(store.bookingParties(t.id, codeBad ? null : p.credit))}</p>
       <details ${code ? 'open' : ''}><summary class="meta" style="cursor:pointer;min-height:44px;display:flex;align-items:center">Have a seller code?</summary>
         <div class="field" style="margin-top:8px"><label for="code">Seller code, e.g. SN-00004</label>
