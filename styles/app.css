@@ -776,3 +776,13 @@ html:not([data-input="pointer"]) .answer:has(:focus-visible) { outline: 2px soli
   .p-hero-copy { width: auto; margin-inline: clamp(40px, 5vw, 96px) auto; }
   .p-hero-copy > * { max-width: min(46vw, 820px); }
 }
+/* Phone hero: photo first (keeps the guide = the cave's scale), copy below on navy. */
+@media (max-width: 767px) {
+  .p-hero { min-height: 0; display: block; }
+  .p-hero-media { position: relative; display: block; height: 62svh; min-height: 380px; max-height: 620px; }
+  .p-hero-media img { position: absolute; inset: 0; object-position: 50% 78%; }
+  .p-hero::after { display: none; }
+  .p-hero-media::after { content: ""; position: absolute; inset: auto 0 0 0; height: 28%; background: linear-gradient(180deg, rgba(28,43,58,0), var(--navy)); }
+  .p-hero-copy { padding-block: 4px 44px; margin-top: -40px; }
+  .p-hero .eyebrow, .p-facts li { text-shadow: none; }
+}
