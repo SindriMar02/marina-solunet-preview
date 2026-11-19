@@ -1,5 +1,5 @@
 import * as store from './store.js'
-import { $, esc, isk, agentShell, dayLabel, monthLabel, statusTag } from './ui.js'
+import { $, esc, isk, agentShell, dayLabel, monthLabel, statusTag, segmented } from './ui.js'
 agentShell('sales', 'Sales')
 const F = [['all', 'All'], ['confirmed', 'Confirmed'], ['pending', 'Waiting'], ['cancelled', 'Cancelled'], ['failed', 'Failed']]
 let f = new URLSearchParams(location.search).get('f') || 'all'
@@ -12,8 +12,15 @@ function draw() {
   $('#totals').innerHTML = [['Confirmed bookings', conf.length], ['Cancelled bookings', all.filter(o => o.state === 'cancelled').length], ['Guests on confirmed bookings', conf.reduce((s, o) => s + o.pax, 0)],
     ['Gross captured sales', isk(all.reduce((sum, o) => sum + store.captured(o), 0))], ['Customers paid, net of refunds', isk(all.reduce((sum, o) => sum + store.netPaid(o), 0))], ['Your commission', isk(all.reduce((s, o) => s + store.balanceOf(o.id), 0))]]
     .map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`).join('')
-  $('#pills').innerHTML = F.map(([k, l]) => `<button class="pill" data-f="${k}" aria-pressed="${k === f}">${l}</button>`).join('')
-  document.querySelectorAll('.pill').forEach(b => b.onclick = () => { f = b.dataset.f; history.replaceState(null, '', `?f=${f}`); draw(); $(`[data-f="${f}"]`)?.focus({ preventScroll: true }) })
+  if (!$('#pills .pill')) {
+    $('#pills').innerHTML = F.map(([k, l]) => `<button class="pill" type="button" data-f="${k}" aria-pressed="${k === f}">${l}</button>`).join('')
+    const seg = segmented($('#pills'))
+    document.querySelectorAll('.pill').forEach(b => b.onclick = () => {
+      f = b.dataset.f; history.replaceState(null, '', `?f=${f}`)
+      document.querySelectorAll('.pill').forEach(other => other.setAttribute('aria-pressed', String(other === b)))
+      seg?.select(b); draw()
+    })
+  }
   $('#list').removeAttribute('data-ledger-reveal')
   if (!rows.length) { $('#list').innerHTML = `<p class="notice" style="margin-top:24px">${all.length ? 'No sales match this filter.' : 'No sales yet. Share a tour from Sell to make your first one.'}</p>`; return }
   requestAnimationFrame(() => $('#list').setAttribute('data-ledger-reveal', ''))

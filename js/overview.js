@@ -50,18 +50,17 @@ export function overview(readOnly = false) {
     const report = oversightReport(filters())
     const policy = intakePolicy().policy
     const capacity = report.capacity
-    $('#report').innerHTML = `<section class="work-section" data-ledger-reveal>
-      <div class="work-section-heading"><h2 class="h-task">Pilot funnel</h2><p class="meta" role="status">As of ${esc(report.asOf.slice(0, 16).replace('T', ' '))} UTC · Policy v${policy.version}</p></div>
-      ${ledger(['Stage', 'Applicants', 'From previous stage', 'Median elapsed'], report.funnel.map(row => [
-        esc(row.label), row.count, row.previous == null ? '—' : row.previous
-          ? `${row.progressed} / ${row.previous} · ${Math.round(row.progressed * 100 / row.previous)}%` : '0 / 0',
-        row.elapsed == null ? '—' : `${row.elapsed.toFixed(1)} h`,
-      ]))}
-      <p class="meta">A first sale is a captured, confirmed booking. Later refunds remain visible below.</p>
+    $('#report').innerHTML = `<section class="funnel" aria-labelledby="funnel-title" data-ledger-reveal>
+      <div class="work-section-heading"><h2 class="h-task" id="funnel-title">Pilot funnel</h2><p class="meta" role="status">As of ${esc(report.asOf.slice(0, 16).replace('T', ' '))} UTC · Policy v${policy.version}</p></div>
+      <dl class="stat-strip funnel-strip">${report.funnel.map((row, i) => `<div><dt>${esc(row.label)}</dt>
+        <dd class="fig${i === report.funnel.length - 1 ? ' key' : ''}">${row.count}</dd>
+        <span class="note">${row.previous == null ? 'Applications received' : row.previous ? `${row.progressed} of ${row.previous} · ${Math.round(row.progressed * 100 / row.previous)}%` : 'None yet'}</span>
+        <span class="note">${row.elapsed == null ? '&nbsp;' : `Median ${row.elapsed.toFixed(1)} h`}</span></div>`).join('')}</dl>
+      <p class="meta">A first sale is a captured, confirmed booking. Later refunds remain visible below. Percentages compare each stage with the one before.</p>
     </section>
-    <section class="work-section"><h2 class="h-task">Review workload</h2>
-      <p>${capacity.total - capacity.left} of ${capacity.total} weekly decisions used · ${report.backlog} cases in queue</p>
-      <p class="meta">Resets ${esc(capacity.reset.slice(0, 10))} UTC</p>
+    <section class="work-section"><div class="work-section-heading"><h2 class="h-task">Review workload</h2><p class="meta">Resets ${esc(capacity.reset.slice(0, 10))} UTC</p></div>
+      <dl class="stat-strip inset"><div><dt>Decisions used this week</dt><dd class="fig">${capacity.total - capacity.left} <span class="meta">of ${capacity.total}</span></dd></div>
+        <div><dt>Cases in queue</dt><dd class="fig">${report.backlog}</dd></div></dl>
       ${ledger(['Reviewer', 'Assigned', 'Untouched', 'Overdue', 'Oldest case'], report.workload.map(row => [esc(row.reviewer), row.assigned, row.untouched, row.overdue, row.oldestHours == null ? '—' : `${Math.round(row.oldestHours)} h`]))}
     </section>
     <section class="work-section"><h2 class="h-task">Decisions by reviewer</h2>

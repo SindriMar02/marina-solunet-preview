@@ -1,6 +1,6 @@
 import { principal } from './session.js'
 import * as store from './store.js'
-import { $, $$, esc, qs, adminShell, dayLabel, sheet } from './ui.js'
+import { $, $$, esc, qs, adminShell, dayLabel, sheet, segmented } from './ui.js'
 import { field, focusHeading, root, timeTag, validateFields } from './recruitment.js'
 // Stored check reasons may carry ISO timestamps from older evaluations; show them as people read dates.
 const readableTimes = text => String(text ?? '').replace(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?Z/g, iso =>
@@ -66,12 +66,17 @@ function render({ focus = false, noteDraft = '', result = '' } = {}) {
   const detailsAvailable = selected && views[selected.state]
   const hadFocus = root.contains(document.activeElement)
   root.innerHTML = `
-    <header class="flow-stack"><p class="eyebrow">People · Marina Travel</p>
+    <header class="review-head"><p class="eyebrow">People · Marina Travel</p>
       <h1 class="h-page" tabindex="-1">Applications</h1>
       <p class="proto">Prototype · ${all.length} applications in this browser</p>
-      <p class="meta">${usage.used} / ${usage.cap} places used · ${usage.waiting} waiting</p>
-      <p class="num" id="capacity-label">${cap.left} of ${cap.total} reviews left this week · resets ${dayLabel(cap.reset.slice(0, 10))}</p>
-      <progress class="meter" max="${cap.total || 1}" value="${cap.left}" aria-labelledby="capacity-label"></progress>
+      <dl class="stat-strip">
+        <div><dt>Reviews left this week</dt><dd class="fig key">${cap.left} <span class="meta">of ${cap.total}</span></dd>
+          <progress class="meter" max="${cap.total || 1}" value="${cap.left}" aria-label="${cap.left} of ${cap.total} reviews left this week"></progress>
+          <span class="note" id="capacity-label">Resets ${dayLabel(cap.reset.slice(0, 10))}</span></div>
+        <div><dt>Places used</dt><dd class="fig">${usage.used} <span class="meta">of ${usage.cap}</span></dd><span class="note">Weekly intake cap</span></div>
+        <div><dt>Waiting at intake</dt><dd class="fig">${usage.waiting}</dd><span class="note">Held until a place opens</span></div>
+        <div><dt>Open for review</dt><dd class="fig">${all.filter(a => ['eligible', 'look_closer', 'reconsideration'].includes(a.state)).length}</dd><span class="note">Eligible, closer look, reconsideration</span></div>
+      </dl>
     </header>
     <nav class="queue-tabs" aria-label="Application views">
       ${Object.entries(views).map(([key, label]) => `<a href="${queueHref(key)}"${key === current ? ' aria-current="page"' : ''}>${label} &nbsp; <span class="num">${all.filter(a => a.state === key).length}</span></a>`).join('')}
@@ -99,6 +104,7 @@ function render({ focus = false, noteDraft = '', result = '' } = {}) {
         : '<p class="split-hint dim">Open an application to see review evidence.</p>'}
     </div>`
 
+  segmented($('.queue-tabs'))
   const sortField = $('#sort-apps')
   if (sortField) sortField.onchange = () => {
     sort = sortField.value
@@ -174,18 +180,18 @@ function detail(app, cap, noteDraft, reviewers) {
   const reviewable = ['eligible', 'look_closer', 'reconsideration', ...(role === 'admin' ? ['market_hold', 'not_qualified'] : [])].includes(app.state)
   const screening = store.applicationScreening(app)
   const override = ['market_hold', 'not_qualified', 'reconsideration'].includes(app.state)
-  return `<header><p class="eyebrow">${esc(views[app.state])}</p>
-    <h2 class="h-page" tabindex="-1" id="app-heading">${esc(app.name)}</h2>
-    <p class="num">${score(app)}${attempt ? ` · Test ${esc(attempt.version)} · Pass mark ${attempt.threshold}` : ' · No test result'}</p>
+  return `<div class="case"><header class="bo-panel case-head"><span class="state-chip">${esc(views[app.state])}</span>
+    <div class="case-title"><h2 tabindex="-1" id="app-heading">${esc(app.name)}</h2>
+      <p class="case-score"><b>${attempt?.score ?? '—'}</b><span>${attempt?.score == null ? 'no test result' : '/ 100'}</span></p></div>
+    <p class="meta num">${attempt ? `Test ${esc(attempt.version)} · Pass mark ${attempt.threshold} · ` : ''}${esc(app.country)} · ${esc(app.markets)}</p>
     ${app.decidedAt ? `<p class="meta">Reviewed by ${esc(app.reviewer)} · ${timeTag(app.decidedAt)}</p>` : ''}
     ${app.reason ? `<p class="meta">Reason · ${esc(app.reason)}</p>` : ''}
     ${seller ? `<p class="status confirmed">${esc(seller.sellerId)} · ${seller.state === 'active' ? 'Active' : 'Invited'}</p>` : ''}
     ${role === 'admin' && app.guided && inv && !inv.consumedAt && Date.parse(inv.expiresAt) > Date.now() ? '<div><button type="button" class="btn" id="expire-invite">Simulate invitation expiry</button></div>' : ''}
-    ${inv ? `<div><a class="linkbtn" href="../activate.html?inv=${inv.token}">Open the invitation (demo)</a></div>` : ''}
-    ${app.access ? `<div><a class="linkbtn" href="../status.html?access=${app.access}">Open applicant status (demo)</a></div>` : ''}
+    ${inv || app.access ? `<div class="case-links">${inv ? `<a class="linkbtn" href="../activate.html?inv=${inv.token}">Open the invitation (demo)</a>` : ''}${app.access ? `<a class="linkbtn" href="../status.html?access=${app.access}">Open applicant status (demo)</a>` : ''}</div>` : ''}
   </header>
-  <dl class="review-summary">${facts.map(([label, value]) => `<div><dt class="meta">${label}</dt><dd>${value}</dd></div>`).join('')}</dl>
-  <section class="flow-stack" aria-labelledby="checks-title">
+  <section class="bo-panel" aria-label="Applicant details"><dl class="review-summary">${facts.map(([label, value]) => `<div><dt class="meta">${label}</dt><dd>${value}</dd></div>`).join('')}</dl></section>
+  <section class="bo-panel" aria-labelledby="checks-title">
     <h3 class="h-task" id="checks-title">Automatic checks</h3>
     <p class="meta">Prototype recruitment policy v${screening.policyVersion ?? attempt?.policy?.version ?? 1}</p>
     <ol class="screening-list">${screening.checks.map((check, index) => `<li style="--check-order:${index}">
@@ -193,10 +199,10 @@ function detail(app, cap, noteDraft, reviewers) {
       <div><strong>${esc(check.label)}</strong><p class="meta">${esc(readableTimes(check.reason))}</p></div>
       <span class="status ${check.outcome === 'Pass' ? 'confirmed' : check.outcome === 'Pending' ? '' : 'exception'}">${esc(check.outcome)}</span></li>`).join('')}</ol>
   </section>
-  ${app.reviewHistory?.length ? `<section class="work-section"><h3 class="h-task">Decision history</h3><ol class="work-list">
+  ${app.reviewHistory?.length ? `<section class="bo-panel"><h3 class="h-task">Decision history</h3><ol class="work-list">
     ${app.reviewHistory.map(item => `<li><div><strong>${esc(item.decision.replaceAll('_', ' '))} · ${esc(item.reviewer)}</strong><p class="meta">${timeTag(item.at)}${item.reason ? ' · ' + esc(item.reason) : ''}</p></div></li>`).join('')}</ol></section>` : ''}
-  ${role === 'admin' ? '<div class="actions"><button class="btn" id="assignment">Assign reviewer</button><button class="btn" id="second-opinion">Record second opinion</button></div>' : ''}
-  ${reviewable ? `<section class="flow-stack" aria-labelledby="decision-title">
+  ${role === 'admin' ? '<div class="actions bo-panel"><button class="btn" id="assignment">Assign reviewer</button><button class="btn" id="second-opinion">Record second opinion</button></div>' : ''}
+  ${reviewable ? `<section class="bo-panel" aria-labelledby="decision-title">
     <h3 class="h-task" id="decision-title">Make a decision</h3>
     ${!cap.left ? '<p class="notice">Weekly review capacity is full. You can still mark this application for a closer look.</p>' : ''}
     <div class="review-actions">${Object.entries(decisions).filter(([key]) => !override || role === 'admin' || key !== 'approve').map(([key, [label, consequence]]) => `
@@ -204,7 +210,7 @@ function detail(app, cap, noteDraft, reviewers) {
         <p class="meta" id="effect-${key}">${esc(key === 'approve' ? `Creates ${store.nextSellerId()} and sends the invitation (demo).` : consequence)}</p></div>`).join('')}</div>
     <p class="hint err" id="decision-error" role="alert"></p>
   </section>` : ''}
-  <section class="flow-stack" aria-labelledby="answers-title">
+  <section class="bo-panel" aria-labelledby="answers-title">
     <h3 class="h-task" id="answers-title">Test answers</h3>
     ${attempt?.submittedAt ? `<ol class="decision-list">${store.TEST_BANK.map((item, i) => {
       const chosen = attempt.answers[item.id]
@@ -215,14 +221,14 @@ function detail(app, cap, noteDraft, reviewers) {
         ${right ? '' : `<p class="meta">Expected · ${esc(item.options[item.correct])}</p>`}</li>`
     }).join('')}</ol>` : '<p class="dim">No submitted answers.</p>'}
   </section>
-  <section class="flow-stack" aria-labelledby="notes-title">
+  <section class="bo-panel" aria-labelledby="notes-title">
     <h3 class="h-task" id="notes-title">Review notes</h3>
     ${app.notes.length ? `<ol class="decision-list">${app.notes.map(n => `<li><p class="meta">${esc(n.by)} · ${timeTag(n.at)}</p><p class="review-note">${esc(n.text)}</p></li>`).join('')}</ol>` : '<p class="dim">No review notes yet.</p>'}
     <form id="note-form" novalidate>
       ${field({ id: 'note', label: 'Add a review note', type: 'textarea', value: noteDraft })}
       <div><button type="submit" class="btn">Save note</button></div>
     </form>
-  </section>`
+  </section></div>`
 }
 
 function confirmDecision(app, opener, keyboard) {

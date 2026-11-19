@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8"><link rel="icon" type="image/png" sizes="48x48" href="../assets/icons/favicon-48.png"><link rel="icon" type="image/png" sizes="192x192" href="../assets/icons/favicon-192.png"><link rel="apple-touch-icon" href="../assets/icons/apple-touch-icon.png"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="robots" content="noindex"><title>Sales · Sölunet</title>
+<meta name="robots" content="noindex"><meta name="theme-color" content="#16212c"><title>Sales · Sölunet</title>
 <script src="../js/focus-guard.js"></script>
 <link rel="stylesheet" href="../styles/app.css">
 <style>
@@ -14,14 +14,15 @@
   @media (min-width: 768px) { .totals { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
   .totals dt { font-size: 13px; color: var(--w70); } .totals dd { margin: 2px 0 0; font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
 </style>
+<link rel="stylesheet" href="../styles/backoffice.css">
 </head>
 <body>
 <main class="wrap" id="main">
   <p class="eyebrow">Sales</p>
   <h1 class="h-page" style="margin:10px 0 8px">Your sales</h1>
   <p class="dim">Every booking made through your links, code or quotes. Tap one to see exactly how your commission was worked out.</p>
-  <dl class="totals" id="totals"></dl>
-  <div class="pills" role="group" aria-label="Filter sales" id="pills"></div>
+  <dl class="totals stat-strip" id="totals"></dl>
+  <div class="pills queue-tabs" role="group" aria-label="Filter sales" id="pills"></div>
   <div id="list"></div>
 </main>
 <script type="module" src="../js/agent-sales.js"></script>
