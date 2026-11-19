@@ -1,0 +1,50 @@
+import * as store from './store.js'
+import { $, esc, isk, storeShell, dayLabel, viewerTime } from './ui.js'
+storeShell()
+window.addEventListener('storage', () => location.reload())
+const o = store.orderById(new URLSearchParams(location.search).get('o'))
+function heldLine(o) {
+  const m = store.money(o); if (!m) return ''
+  if (m.held) return `<p class="meta held-note">Held until your tour on ${esc(dayLabel(m.releaseOn))} (planned with Teya). Marina Travel is paid after the tour.</p>`
+  if (o.state === 'cancelled') return '<p class="meta held-note">Refunded in full to your card.</p>'
+  return m.released ? '<p class="meta held-note">Your tour has taken place and the payment has gone to Marina Travel.</p>' : ''
+}
+// The status is read BEFORE any payment action is offered (BLUEPRINT P7).
+if (!o) $('#main').innerHTML = '<h1 class="h-page">Booking not found</h1><p class="notice err" style="margin-top:16px">This link does not match a booking in this browser. Call Marina Travel on <a href="tel:+3548678899">+354 867 8899</a> or <a href="shop.html">see the tours</a>.</p>'
+else {
+  const t = store.tour(o.tourId), a = o.agentId && store.agent(o.agentId), local = viewerTime(o.date, o.time)
+  const what = `${esc(t.title)}<br>${esc(dayLabel(o.date))} · ${esc(o.time)} Iceland${local ? ` <span class="meta">(${esc(local)})</span>` : ''} · ${o.pax} guest${o.pax === 1 ? "" : "s"}`
+  const views = {
+    confirmed: ['You are booked', `Reference <b>${esc(o.ref)}</b>. In a live booking Bókun would email your voucher${o.guest?.email ? ` to ${esc(o.guest.email)}` : ''}; this demo sends no email. The receipt confirms payment; the voucher is your ticket.`, 'ok'],
+    requested: ['Request sent', `Reference <b>${esc(o.ref)}</b>. ${esc(store.supplierForOrder(o))} will confirm or decline it in Bókun. ${store.captured(o) ? 'Payment was received.' : 'Payment is due after acceptance.'}`, ''],
+    failed: o.outcome ? ['Marina could not confirm this date', 'Nothing was charged. Choose another departure, or call Marina Travel and they will help you find one.', '']
+      : ['Payment not completed', 'Nothing was charged. You can try again below.', 'err'],
+    handed_off: ['Not paid yet', 'You left the checkout before paying. Your selection is kept for a short while.', ''],
+    exception: ['Booking needs attention', o.refundCase ? 'The supplier did not accept this booking. Marina has opened a refund case.' : 'Marina will contact you about this booking.', 'err'],
+    cancelled: ['Cancelled', store.captured(o) ? 'This booking was cancelled and your payment was refunded.' : 'This request was cancelled. Nothing was charged.', ''],
+    partially_refunded: ['You are booked', `Reference <b>${esc(o.ref)}</b>. Part of your payment was refunded.`, 'ok'],
+  }
+  const [h, body, kind] = views[o.state] || ['Checking your booking', 'Marina Travel contacts you if anything needs your attention.', '']
+  $('#main').innerHTML = `
+    <p class="eyebrow">${esc(store.storeBrand())} · by Marina Travel</p>
+    <h1 class="h-page" style="margin:10px 0 16px">${h}</h1>
+    <div class="notice ${kind}"><p>${body}</p></div>
+    <div class="panel" style="margin-top:24px">
+      <p>${what}</p>
+      <div class="price">
+        ${store.captured(o) ? `<div class="line"><span>Paid</span><span>${isk(store.captured(o))}</span></div>` : ''}
+        ${store.refunded(o) ? `<div class="line"><span>Refunded to you</span><span>${isk(-store.refunded(o))}</span></div>` : ''}
+        <div class="total"><span>${store.captured(o) ? 'Paid' : o.state === 'requested' ? 'Due after Marina confirms' : o.state === 'handed_off' ? 'To pay' : 'Charged'}</span>
+          <b class="money">${isk(store.captured(o) ? store.netPaid(o) : ['requested', 'handed_off'].includes(o.state) ? o.line.customerGrossMinor : 0)}</b></div></div>
+      ${heldLine(o)}
+      <p class="meta">${esc(store.bookingParties(t.id, a, o.line))}</p>
+      ${o.line.cancellation ? `<p class="meta">Cancellation: ${esc(o.line.cancellation)}</p>` : ''}
+    </div>
+    <div class="actions" style="margin-top:24px">
+      ${o.state === 'handed_off' ? `<a class="btn primary" href="pay.html?o=${o.id}">Return to payment</a>` : ''}
+      ${o.state === 'failed' && o.from && !o.outcome ? `<a class="btn primary" href="${esc(o.from)}">Try again</a>` : ''}
+      ${o.state === 'failed' && o.outcome ? `<a class="btn primary" href="s.html?t=${esc(o.tourId)}">Choose another departure</a>` : ''}
+      ${o.state === 'cancelled' ? `<a class="btn primary" href="s.html?t=${esc(o.tourId)}">Book again</a>` : ''}
+      <a class="btn" href="tel:+3548678899">Call Marina Travel</a>
+    </div>`
+}
