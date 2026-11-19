@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><link rel="icon" type="image/png" sizes="48x48" href="../assets/icons/favicon-48.png"><link rel="icon" type="image/png" sizes="192x192" href="../assets/icons/favicon-192.png"><link rel="apple-touch-icon" href="../assets/icons/apple-touch-icon.png"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex"><title>Sales · Sölunet admin</title>
+<script src="../js/focus-guard.js"></script>
+<link rel="stylesheet" href="../styles/app.css">
+<style>
+  .tablewrap { min-width: 0; max-width: 100%; overflow-x: auto; }
+  .ledger { min-width: 1060px; }
+  .acts { display: flex; gap: 8px; flex-wrap: wrap; }
+  .acts .btn { min-height: 44px; padding: 0 12px; font-size: 13px; }
+  .grp td { padding-top: 28px; border-bottom: 1px solid var(--gold); font-size: 13px; letter-spacing: .1em; text-transform: uppercase; color: var(--gold-text); }
+</style>
+</head>
+<body>
+<div class="admin-review">
+<nav class="review-rail" aria-label="Marina admin sections">
+  <a href="applications.html"><span class="meta">People</span>Applications</a>
+  <a href="suppliers.html"><span class="meta">Network</span>Suppliers</a>
+  <a href="sales.html" aria-current="page"><span class="meta">Operations</span>Sales</a>
+  <a href="../index.html#demo-story"><span class="meta">Prototype</span>Demo walkthrough</a>
+</nav>
+<main class="review-well" id="main">
+  <p class="eyebrow">Operations · Sales</p>
+  <h1 class="h-page" style="margin:10px 0 8px">Sales by agent</h1>
+  <div class="field supplier-filter"><label for="supplier">Supplier</label><select id="supplier" class="input"></select></div>
+  <div class="tablewrap" style="margin-top:24px" tabindex="0" role="region" aria-label="Sales ledger"><table class="ledger" id="t"></table></div>
+</main>
+</div>
+<script type="module">
+import * as store from '../js/store.js'
+import { $, esc, isk, adminShell, dayLabel, statusTag } from '../js/ui.js'
+adminShell('Sales')
+function draw() {
+  const filter = $('#supplier'), selected = filter.value
+  filter.innerHTML = '<option value="">All suppliers</option>' + store.suppliers().map(s => `<option value="${s.id}">${esc(s.name)}</option>`).join('')
+    + (store.allOrders().some(o => !store.supplierIdForOrder(o)) ? '<option value="unknown">Unknown supplier</option>' : '')
+  filter.value = [...filter.options].some(o => o.value === selected) ? selected : ''
+  const os = store.allOrders().filter(o => !filter.value || (store.supplierIdForOrder(o) ?? 'unknown') === filter.value)
+  if (!os.length) { $('#t').innerHTML = '<tbody><tr><td colspan="9"><p class="notice">No sales for this selection.</p></td></tr></tbody>'; return }
+  const groups = {}
+  os.forEach(o => (groups[o.agentId || 'direct'] ||= []).push(o))
+  const paid = o => ['confirmed', 'partially_refunded'].includes(o.state)
+  const moneyNote = o => { const m = store.money(o); if (!m) return ''
+    const fee = m.refundFeeMinor ? ` · refund fee ${isk(m.refundFeeMinor)}` : (store.refunded(o) ? ' · refund fee 0 kr' : '')
+    return `<div class="sub">${m.held ? `Held until ${esc(dayLabel(m.releaseOn))} (planned Teya hold)` : m.released ? 'Paid out to Marina' : m.unknown ? 'Paid before the hold: settlement unknown' : 'Refunded'}${m.feeUnknown ? ' · refund fee unknown' : fee}</div>` }
+  const net = o => o.payments.reduce((t, p) => t + (p.kind === 'capture' ? p.amount : -p.amount), 0)
+  $('#t').innerHTML = `<thead><tr><th>Departure</th><th>Tour · booking</th><th>Supplier</th><th class="num">Guests</th><th>Status</th><th>Credited</th><th class="num">Customer paid, net</th><th class="num">Commission</th><th>Demo actions</th></tr></thead>
+  <tbody>${Object.entries(groups).map(([aid, list]) => { const a = store.agent(aid)
+    return `<tr class="grp"><td colspan="9">${a ? `${esc(a.sellerId)} · ${esc(a.name)} · ${esc(a.city)}` : 'Direct sales (no seller)'}</td></tr>` + list.map(o => { const t = store.tour(o.tourId)
+      return `<tr><td class="when">${esc(dayLabel(o.date))}<div class="sub">${esc(o.time)} Iceland</div></td>
+        <td><span class="tour">${esc(t.title)}</span><div class="sub">${esc(o.ref || 'no booking yet')}</div></td>
+        <td>${esc(store.supplierForOrder(o))}</td>
+        <td class="num">${o.pax}</td><td>${statusTag(o.state)}${moneyNote(o)}</td>
+        <td>${a ? `<span class="mt">${esc(a.sellerId)}</span>` : '—'}<div class="sub">${esc({ visit: 'link', code: 'code', quote: 'quote', direct: 'direct' }[o.why] || o.why)}</div></td>
+        <td class="num money">${store.captured(o) ? isk(net(o)) : '<span class="dim">—</span>'}</td>
+        <td class="num money">${isk(store.balanceOf(o.id))}${store.commissionStatus(o) ? `<div class="sub">${esc({ pending: 'pending', payable: 'payable', unconfirmed: 'unconfirmed' }[store.commissionStatus(o)])}</div>` : ''}</td>
+        <td><div class="acts">
+          ${o.state === 'requested' ? `<fieldset class="response"><legend>Simulated: the supplier answers in Bókun</legend>
+            <button class="btn" data-response="accepted" data-id="${o.id}">Accept</button>
+            <button class="btn" data-response="rejected" data-id="${o.id}">Reject</button>
+            <button class="btn" data-response="expired" data-id="${o.id}">Expire</button></fieldset>` : ''}
+          ${o.refundCase ? '<p class="meta">Refund case opened</p>' : ''}
+          ${store.money(o)?.held && ['confirmed', 'partially_refunded'].includes(o.state) ? `<button class="btn" data-a="tourday" data-id="${o.id}">Tour day</button>` : ''}
+          ${o.state === 'confirmed' ? `<button class="btn" data-a="half" data-id="${o.id}">Refund half</button>` : ''}
+          ${['confirmed', 'partially_refunded', 'requested'].includes(o.state) ? `<button class="btn" data-a="cancel" data-id="${o.id}">Cancel · full refund</button>` : ''}
+        </div></td></tr>` }).join('') }).join('')}</tbody>
+  <tfoot><tr><td colspan="6">Sales shown · ${os.filter(paid).length} paid bookings · ${os.filter(paid).reduce((s, o) => s + o.pax, 0)} guests</td>
+    <td class="num money">${isk(os.reduce((s, o) => s + net(o), 0))}</td>
+    <td class="num money">${isk(os.reduce((s, o) => s + store.balanceOf(o.id), 0))}</td><td></td></tr></tfoot>`
+  document.querySelectorAll('[data-response]').forEach(button => button.onclick = () => {
+    store.refresh()
+    store.simulateSupplierResponse(button.dataset.id, button.dataset.response)
+    draw()
+    $('.tablewrap').focus({ preventScroll: true })
+  })
+  document.querySelectorAll('[data-a]').forEach(b => b.onclick = () => {
+    const id = b.dataset.id, o = store.orderById(id), what = { half: 'refund half to the guest', cancel: 'cancel and refund the guest IN FULL (staff decision, e.g. weather; a guest cancelling inside 48 hours pays 100%)', tourday: 'mark the tour as run, so Teya pays the money out to Marina' }[b.dataset.a]
+    if (!confirm(`Demo: ${what} for ${o.ref || id}? This changes the agent's commission.`)) return
+    ;({ half: store.adminRefundHalf, cancel: store.adminCancel, tourday: store.adminRunTourDay })[b.dataset.a](id); draw() })
+}
+$('#supplier').onchange = draw
+draw()
+window.addEventListener('storage', () => { store.refresh(); draw() })
+</script>
+</body>
+</html>

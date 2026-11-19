@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><link rel="icon" type="image/png" sizes="48x48" href="assets/icons/favicon-48.png"><link rel="icon" type="image/png" sizes="192x192" href="assets/icons/favicon-192.png"><link rel="apple-touch-icon" href="assets/icons/apple-touch-icon.png"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex"><title>Ice Cave Adventure · Blue ice cave tours in Iceland</title>
+<meta name="description" content="Book a small-group blue ice cave tour at Vatnajökull and Jökulsárlón with Marina Travel. Pay securely; your payment is held until your tour.">
+<script src="js/focus-guard.js"></script>
+<link rel="preload" as="image" href="assets/img/shop/ice-cave-hero.jpg" fetchpriority="high">
+<link rel="stylesheet" href="styles/app.css">
+</head>
+<body>
+<main id="main"></main>
+<script type="module">
+import * as store from './js/store.js'
+import { $, esc, isk, storeShell, scrollReveal } from './js/ui.js'
+storeShell('tours')
+const brand = store.storeBrand()
+document.title = `${brand} · Blue ice cave tours in Iceland`
+const ice = store.tour('icecave'), east = store.tour('eastfjords')
+// Tour copy comes from Marina's Bókun products (ui/data/tours.json); the site lines above it are ours.
+const DATA = await fetch('data/tours.json').then(r => r.ok ? r.json() : []).then(x => Array.isArray(x) ? x : []).catch(() => [])
+const fix = v => String(v || '').replace(/\bHofn\b/g, 'Höfn').replace(/\bJokulsarlon\b/g, 'Jökulsárlón').replace(/\bVok\b/g, 'Vök')
+const info = t => DATA.find(x => x.activityId === t.activityId)
+const lead = t => { const d = info(t); if (!d) return t.blurb
+  const first = fix(d.description?.[0] || d.excerpt).split(/(?<=\.)\s+/).slice(0, 2).join(' ')
+  return first }
+const name = t => fix(info(t)?.shortTitle) || t.title
+const sellable = t => store.offer(t.id)?.status === 'active' && !store.agentOffer(t, null).error
+const img = t => t.img.replace('../', '')
+
+$('#main').innerHTML = `
+  <section class="shop-hero" aria-labelledby="hero-title">
+    <img class="shop-hero-img" src="assets/img/shop/ice-cave-hero.jpg" alt="A guest in a red jacket standing inside a blue glacier ice cave" fetchpriority="high">
+    <div class="shop-hero-copy site-well">
+      <p class="eyebrow arrive a1">${esc(ice.season)}</p>
+      <h1 id="hero-title" class="shop-title arrive a2">Walk inside<br>the blue ice.</h1>
+      <p class="shop-lede arrive a3">Small-group ice cave tours under Vatnajökull, with the icebergs of Jökulsárlón and Diamond Beach on the same day.</p>
+      <div class="actions arrive a4">
+        <a class="btn primary" href="s.html?t=icecave">See dates and book</a>
+        <a class="btn" href="#how">How booking works</a>
+      </div>
+    </div>
+  </section>
+
+  <div class="site-well">
+    <section class="shop-section" id="tours" aria-labelledby="tours-title">
+      <header class="shop-head" data-reveal><p class="eyebrow">Book now</p><h2 id="tours-title" class="shop-h2">The tour.</h2></header>
+      ${feature(ice)}
+    </section>
+
+    <section class="shop-section" aria-labelledby="next-title">
+      <header class="shop-head" data-reveal><p class="eyebrow">Also from Marina Travel</p><h2 id="next-title" class="shop-h2">Next season.</h2></header>
+      <div class="shop-row" data-reveal>
+        ${card(east)}
+        <article class="shop-card soon"><div class="ph"><img src="assets/img/shop/glacier-walk.jpg" alt="Two hikers with helmets and ropes on a glacier" loading="lazy"></div>
+          <p class="eyebrow">Coming to this site</p><h3>Glacier walks, Silfra snorkelling and more</h3>
+          <p class="meta">Tours by other Icelandic companies that Marina Travel already sells, added after the ice cave season.</p></article>
+      </div>
+    </section>
+
+    <section class="shop-section shop-how" id="how" aria-labelledby="how-title">
+      <header class="shop-head" data-reveal><p class="eyebrow">How booking works</p><h2 id="how-title" class="shop-h2">Your money waits for your tour.</h2>
+        <p class="dim shop-sub">Send a booking request for your date. Marina Travel confirms it, then you pay by card. The payment is held until the day of your tour, and any refund under the tour's cancellation terms goes back to your card.</p></header>
+      <ol class="money-path" id="path">
+        <li><span class="dot"></span><b>Request, then pay</b><span class="meta">Pick a date and send a request. Marina Travel confirms it by email, then you pay securely by card.</span></li>
+        <li><span class="dot"></span><b>Held until your tour</b><span class="meta">Teya, the Icelandic payment company, holds the money. Marina Travel is not paid yet.</span></li>
+        <li><span class="dot"></span><b>Your tour day</b><span class="meta">Meet your guide. After the tour, the payment goes to Marina Travel.</span></li>
+      </ol>
+      <p class="proto">Prototype · The hold is planned with Teya; its exact terms are being confirmed.</p>
+    </section>
+
+    <section class="shop-section shop-sell" aria-labelledby="sell-title" data-reveal>
+      <img src="assets/img/shop/diamond-beach.jpg" alt="Ice blocks on the black sand of Diamond Beach" loading="lazy">
+      <div><p class="eyebrow">Sell with us</p><h2 id="sell-title" class="shop-h2">Know travellers heading to Iceland?</h2>
+        <p class="dim">Share your own link, QR code or quote. When your guest pays and the tour runs, you earn up to 17% of the tour price before VAT. You never handle the guest's money.</p>
+        <div class="actions"><a class="btn primary" href="become.html?src=site">Become a seller</a><a class="btn" href="how.html">How the network works</a></div></div>
+    </section>
+  </div>`
+
+function facts(t) {
+  return [t.duration, t.place.replace(/^from /, 'From '), `${t.min}–${t.max} guests`, `Age ${t.age}+`].map(f => `<li>${esc(f)}</li>`).join('')
+}
+function feature(t) {
+  const open = sellable(t)
+  return `<article class="shop-feature" data-reveal>
+    <a class="ph" href="s.html?t=${t.id}" tabindex="-1" aria-hidden="true"><img src="${t.id === 'icecave' ? 'assets/img/shop/ice-cave-wall.jpg' : img(t)}" alt="" loading="lazy"></a>
+    <div class="shop-feature-copy">
+      <p class="eyebrow">${esc(t.season)}</p>
+      <h3 class="shop-h3"><a href="s.html?t=${t.id}">${esc(name(t))}</a></h3>
+      <p class="dim">${esc(lead(t))}</p>
+      <ul class="shop-facts">${facts(t)}</ul>
+      <p class="shop-price"><span class="meta">Example price</span> <b class="money">${isk(store.priceOf(t))}</b> <span class="meta">${esc(t.unit)}</span></p>
+      <p class="meta">The price per person depends on the size of your group; you see the exact total before you pay.</p>
+      ${open ? `<a class="btn primary" href="s.html?t=${t.id}">See dates and book</a>` : '<p class="notice">Bookings are paused for now.</p>'}
+      ${t.capacity === 'ON_REQUEST' ? '<p class="meta">On request: Marina Travel confirms your date by email before you pay.</p>' : ''}
+      <p class="proto">Prototype · One of Marina's three ice cave tours; Einar picks the pilot tour.</p>
+    </div></article>`
+}
+function card(t) {
+  return `<a class="shop-card" href="s.html?t=${t.id}"><div class="ph"><img src="${img(t)}" alt="" loading="lazy"></div>
+    <p class="eyebrow">${esc(t.season)}</p><h3>${esc(name(t))}</h3>
+    <p class="dim">${esc(fix(info(t)?.excerpt) || t.blurb)}</p>
+    <p class="meta">${esc(t.place)} · ${esc(t.duration)} · example price <span class="money">${isk(store.priceOf(t))}</span> ${esc(t.unit)}</p></a>`
+}
+
+// Signature moment: the money path draws its gold line once, as it enters view.
+const path = $('#path')
+if ('IntersectionObserver' in window) {
+  const io = new IntersectionObserver(([e]) => { if (e.isIntersecting) { path.classList.add('drawn'); io.disconnect() } }, { rootMargin: '0px 0px -18% 0px' })
+  io.observe(path)
+} else path.classList.add('drawn')
+scrollReveal()
+</script>
+</body>
+</html>

@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><link rel="icon" type="image/png" sizes="48x48" href="assets/icons/favicon-48.png"><link rel="icon" type="image/png" sizes="192x192" href="assets/icons/favicon-192.png"><link rel="apple-touch-icon" href="assets/icons/apple-touch-icon.png"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex"><title>Checkout (simulated Bókun)</title>
+<script src="js/focus-guard.js"></script>
+<link rel="stylesheet" href="styles/app.css">
+<style>
+  /* Deliberately NOT the Kólumbus look: this stands in for Bókun's own hosted checkout page. */
+  body { background: #f4f5f7; color: #1d2430; color-scheme: light; }
+  .mock { background: #fff3c4; color: #4a3b00; font-size: 13px; text-align: center; padding: 8px 16px; }
+  .box { max-width: 520px; margin: 32px auto; background: #fff; border: 1px solid #d9dde3; border-radius: 8px; padding: 24px; display: grid; gap: 18px; }
+  .box h1 { font-size: 22px; letter-spacing: -.01em; }
+  .box .row2 { display: flex; justify-content: space-between; gap: 12px; font-size: 15px; }
+  .box .row2 span:last-child { font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .box .tot { border-top: 1px solid #d9dde3; padding-top: 12px; font-weight: 600; font-size: 18px; }
+  .box label { font-size: 13px; color: #4a5361; }
+  .box input { height: 46px; border: 1px solid #767676; border-radius: 6px; padding: 0 12px; background: #fff; color: #1d2430; width: 100%; font-size: 16px; }
+  .b { min-height: 48px; border-radius: 6px; border: 1px solid #1d2430; background: #fff; color: #1d2430; font-weight: 500; cursor: pointer; font-size: 16px; }
+  .b.main { background: #1f6feb; border-color: #1f6feb; color: #fff; font-weight: 600; }
+  .muted { color: #4a5361; font-size: 13px; }
+  :focus-visible { outline: 2px solid #1f6feb; outline-offset: 2px; }
+</style>
+</head>
+<body>
+<div class="mock" role="note">Simulated Bókun checkout for the prototype. No card details are asked for and nothing is charged.</div>
+<main class="box" id="main"></main>
+<script type="module">
+import * as store from './js/store.js'
+import { $, esc, isk, dayLabel } from './js/ui.js'
+const o = store.orderById(new URLSearchParams(location.search).get('o'))
+if (!o) $('#main').innerHTML = '<h1>Checkout not found</h1><p class="muted">This checkout link is not valid in this browser. <a href="shop.html">See the tours</a></p>'
+else if (o.state !== 'handed_off') location.replace(`r.html?o=${o.id}`)
+else {
+  const t = store.tour(o.tourId), onReq = t.capacity === 'ON_REQUEST'
+  $('#main').innerHTML = `
+    <p class="muted">${esc(store.bookingParties(t.id, store.agent(o.agentId), o.line))}</p>
+    <h1>${esc(t.title)}</h1>
+    <div class="row2"><span>${esc(dayLabel(o.date))} · ${esc(o.time)}</span><span>${o.pax} guest${o.pax === 1 ? '' : 's'}</span></div>
+    <div class="row2"><span>List price</span><span>${isk(o.line.listGrossMinor)}</span></div>
+    ${o.line.discountGrossMinor ? `<div class="row2"><span>Promo code</span><span>${isk(-o.line.discountGrossMinor)}</span></div>` : ''}
+    <div class="row2 tot"><span>${onReq ? 'Due after acceptance' : 'Total'}</span><span>${isk(o.line.customerGrossMinor)}</span></div>
+    <form id="f" style="display:grid;gap:18px" novalidate>
+    <div style="display:grid;gap:6px"><label for="n">Lead traveller</label><input id="n" name="name" autocomplete="name" required aria-describedby="n-err"><p class="muted" id="n-err" role="alert" hidden>Add the lead traveller's name.</p></div>
+    <div style="display:grid;gap:6px"><label for="e">Email for the voucher</label><input id="e" name="email" type="email" autocomplete="email" required aria-describedby="e-err"><p class="muted" id="e-err" role="alert" hidden>Add an email address like name@example.com.</p></div>
+    <button class="b main" id="pay" type="submit">${onReq ? 'Send request' : `Pay ${isk(o.line.customerGrossMinor)}`}</button>
+    <div style="display:grid;gap:8px;grid-template-columns:1fr 1fr">
+      <button class="b" id="decl" type="button">Simulate: bank declines</button>
+      <button class="b" id="leave" type="button">Simulate: guest leaves</button>
+    </div>
+    </form>
+    ${o.line.cancellation ? `<p class="muted">Cancellation: ${esc(o.line.cancellation)}</p>` : ''}
+    <p class="muted">After payment you return to Marina Travel to see your booking status.</p>`
+  const go = outcome => { store.payOutcome(o.id, outcome, { name: $('#n').value, email: $('#e').value }); location.href = `r.html?o=${o.id}` }
+  $('#f').onsubmit = e => { e.preventDefault()
+    const bad = [['n', 'n-err'], ['e', 'e-err']].filter(([id, err]) => { const ok = $('#' + id).checkValidity() && $('#' + id).value.trim(); $('#' + err).hidden = !!ok; $('#' + id).setAttribute('aria-invalid', ok ? 'false' : 'true'); return !ok })
+    if (bad.length) { $('#' + bad[0][0]).focus(); return }
+    go('paid') }
+  $('#decl').onclick = () => go('declined'); $('#leave').onclick = () => go('abandon')
+}
+</script>
+</body>
+</html>
