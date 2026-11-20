@@ -235,8 +235,8 @@ function seed() {
   }
 }
 
-/** v3 → v4: terms carry the Bókun cancellation wording; a capture made before the Teya hold has an UNKNOWN settlement
-    state (absence of a field proves nothing about Teya), never 'held'. */
+/** v3 → v4: terms carry the Bókun cancellation wording; a capture made on the earlier payment path has an UNKNOWN settlement
+    state (absence of a field proves nothing about Teya), so its fees are unknown. */
 function toV4(s) {
   const terms = (s.terms || []).map(x => { const t = TOURS.find(y => 'terms_' + y.id === x.id); return t?.cancellation ? { ...x, cancellation: t.cancellation } : x })
   const orders = (s.orders || []).map(o => o.payments?.some(p => p.kind === 'capture') && !o.settlement ? { ...o, settlement: 'unknown' } : o)
@@ -571,12 +571,12 @@ export function payOutcome(orderId, outcome, guest = {}) {
   if (t.capacity === 'ON_REQUEST') {
     o.state = 'requested'
     if (o.line.routeKind === 'bokun_resold' && outcome === 'request_paid') {
-      o.payments.push({ kind: 'capture', id: `pay-${o.ref}`, amount: o.line.customerGrossMinor, at: now }); o.settlement = 'teya_hold'
+      o.payments.push({ kind: 'capture', id: `pay-${o.ref}`, amount: o.line.customerGrossMinor, at: now }); o.settlement = 'teya_daily'
     }
     o.history.push({ at: now, what: `Request ${o.ref} sent to ${supplierForOrder(o)}`, detail: 'Waiting for supplier confirmation in Bókun.' })
   } else {
     o.state = 'confirmed'
-    o.payments.push({ kind: 'capture', id: `pay-${o.ref}`, amount: o.line.customerGrossMinor, at: now }); o.settlement = 'teya_hold'
+    o.payments.push({ kind: 'capture', id: `pay-${o.ref}`, amount: o.line.customerGrossMinor, at: now }); o.settlement = 'teya_daily'
     o.history.push({ at: now, what: `Paid and confirmed · ${o.ref}`, detail: `captured ${o.line.customerGrossMinor}` })
     settle(o, now)
     recordConfirmed(o, now)
@@ -620,7 +620,7 @@ export function simulateSupplierResponse(id, response) {
   const now = new Date().toISOString()
   if (response === 'accepted') {
     o.state = 'confirmed'
-    if (!o.payments.some(p => p.kind === 'capture')) { o.payments.push({ kind: 'capture', id: `pay-${o.ref}`, amount: o.line.customerGrossMinor, at: now }); o.settlement = 'teya_hold' }
+    if (!o.payments.some(p => p.kind === 'capture')) { o.payments.push({ kind: 'capture', id: `pay-${o.ref}`, amount: o.line.customerGrossMinor, at: now }); o.settlement = 'teya_daily' }
     settle(o, now)
     recordConfirmed(o, now)
   } else {
@@ -633,38 +633,86 @@ export function simulateSupplierResponse(id, response) {
   save()
 }
 export const storeBrand = () => S.settings.storeBrand || 'Ice Cave Adventure'
-/** Teya holds each payment until the tour date (Einar, 19 Nov). Before release a refund costs Marina nothing;
-    after release a refund goes back through the card network and carries the card fee (3% is Einar's example). */
-export const CARD_FEE_BPS_AFTER_RELEASE = 300
-export function money(o) {
-  if (!o.payments.some(p => p.kind === 'capture')) return null
-  const released = Boolean(o.releasedAt), net = netPaid(o), unknown = o.settlement !== 'teya_hold'
-  return { held: !unknown && !released && net > 0, released, unknown: unknown && !released, releaseOn: o.date, releasedAt: o.releasedAt || null,
-    refundFeeMinor: o.refundFeeMinor || 0, feeUnknown: Boolean(o.refundFeeUnknown), net }
+/** Teya's rules, as Hafliði (Teya) wrote to Einar on 19 Nov 2026:
+    - transactions are batched at the end of each day and the fees are taken there, whatever the payout frequency;
+    - a refund on the same day as the payment costs Marina no transaction fees;
+    - a later refund leaves Marina paying the original transaction's fees; Teya adds no separate refund fee.
+    There is no hold until tour day. Payout is planned daily (next business day); Teya's offer is pending.
+    The guest is always refunded in full: Act 114/2021 art. 62 bars passing a card fee on to the payer.
+    The rate is Einar's 3% example, NOT a Teya rate. EEA consumer cards cost far less; the real rate comes from Teya's offer.
+    Iceland is on UTC all year, so the calendar day is the UTC date. The exact cut-off is to be confirmed with Teya. */
+export const PROCESSING_FEE_EXAMPLE_BPS = 300
+const dayOf = iso => String(iso).slice(0, 10)
+const paidAt = o => o.payments.find(p => p.kind === 'capture')?.at
+const onTeya = o => o.settlement === 'teya_daily' || o.settlement === 'teya_hold' // 'teya_hold' = v4 data, same rules now
+/** True while a refund would still be in the same Teya day as the payment. */
+function sameDay(o, now = new Date().toISOString()) {
+  const at = paidAt(o)
+  return Boolean(at) && onTeya(o) && !o.batchedAt && !o.releasedAt && dayOf(now) === dayOf(at)
 }
-/** Commission on a sale is pending while the guest's money is held, payable once the tour has run (Teya pays out). */
+export function nextBusinessDay(iso) {
+  const d = new Date(dayOf(iso) + 'T00:00:00Z')
+  do d.setUTCDate(d.getUTCDate() + 1); while (d.getUTCDay() === 0 || d.getUTCDay() === 6)
+  return d.toISOString().slice(0, 10)
+}
+const feeOf = amount => Math.round(amount * PROCESSING_FEE_EXAMPLE_BPS / 10000)
+export function money(o, now = new Date().toISOString()) {
+  const at = paidAt(o); if (!at) return null
+  const net = netPaid(o), unknown = !onTeya(o)
+  const refunds = o.payments.filter(p => p.kind !== 'capture')
+  const sameDayRefunded = refunds.filter(p => p.sameDay).reduce((t, p) => t + p.amount, 0)
+  const laterRefunded = refunds.filter(p => !p.sameDay).reduce((t, p) => t + p.amount, 0)
+  const open = sameDay(o, now)
+  return {
+    paidAt: at, unknown, net,
+    sameDayOpen: open && net > 0,                       // a refund now would cost no fees
+    batched: !unknown && !open,                         // Teya's end-of-day batch has taken the fees
+    payoutOn: unknown ? null : nextBusinessDay(at),     // planned daily payout, offer pending
+    tourRan: Boolean(o.releasedAt), tourRanAt: o.releasedAt || null,
+    // Example processing fee Marina pays on what was not refunded the same day (Teya adds nothing for a refund).
+    feeMinor: unknown ? null : feeOf(captured(o) - sameDayRefunded),
+    // The part of that fee that sits on money already given back: Marina's real cost of a later refund.
+    refundFeeMinor: unknown ? 0 : feeOf(laterRefunded),
+    feeToConfirm: sameDayRefunded > 0 && net > 0,       // same-day PARTIAL refund: Teya to confirm how fees apply
+    feeUnknown: unknown && refunds.length > 0,
+  }
+}
+/** Commission is pending until the tour has actually run, then payable. Cancelling reverses it; partial refunds adjust it. */
 export function commissionStatus(o) {
-  const bal = balanceOf(o.id), m = money(o)
+  const bal = balanceOf(o.id)
   if (!bal) return null
-  if (!m) return 'pending'
-  return m.released ? 'payable' : m.unknown ? 'unconfirmed' : 'pending'
+  return o.releasedAt ? 'payable' : 'pending'
 }
-function refundFee(o, amount) {
-  if (o.settlement !== 'teya_hold' && !o.releasedAt) { o.refundFeeUnknown = true; return 'fee unknown: paid before the Teya hold' }
-  const fee = o.releasedAt ? Math.round(amount * CARD_FEE_BPS_AFTER_RELEASE / 10000) : 0
-  o.refundFeeMinor = (o.refundFeeMinor || 0) + fee
-  return fee ? `card fee ${fee} (paid out already)` : 'no fee: Teya still held the payment'
+function refundNote(o, now) {
+  if (!onTeya(o)) return 'fee unknown: paid on the earlier payment path'
+  return sameDay(o, now) ? 'same Teya day as the payment: no transaction fees'
+    : `after Teya's end-of-day batch: Marina keeps paying the original fees (example ${feeOf(captured(o))}), no extra refund fee`
 }
-/** Demo: the tour has run, so Teya pays the held money out to Marina and the commission becomes payable. */
+/** Demo: Teya's end-of-day batch runs for this payment. From now on a refund leaves Marina with the original fees. */
+export function adminCloseDay(id) {
+  requireRole('admin')
+  if (sessionsEnabled()) refresh()
+  const o = orderById(id)
+  if (!o || !sameDay(o)) return false
+  const now = new Date().toISOString()
+  o.batchedAt = now
+  o.history.push({ at: now, what: 'Teya end-of-day batch · fees taken', detail: `example fee ${feeOf(captured(o))} · payout planned ${nextBusinessDay(paidAt(o))}` })
+  log('staff', 'payment.batched', o.ref, 'Demo: end of the payment day')
+  save()
+  return true
+}
+/** Demo: the tour has run and Marina has verified it, so the commission becomes payable.
+    `releasedAt` keeps its v4 name: it marks the verified tour and dates the monthly statement. */
 export function adminRunTourDay(id) {
   requireRole('admin')
   if (sessionsEnabled()) refresh()
   const o = orderById(id)
   if (!o || o.releasedAt || !['confirmed', 'partially_refunded'].includes(o.state)) return false
   const now = new Date().toISOString()
+  o.batchedAt ||= now
   o.releasedAt = now
-  o.history.push({ at: now, what: 'Tour day passed · Teya paid the money out to Marina', detail: `released ${netPaid(o)}` })
-  log('staff', 'payment.released', o.ref, 'Demo: tour day')
+  o.history.push({ at: now, what: 'Tour ran · verified by Marina', detail: 'commission payable in the next monthly statement' })
+  log('staff', 'tour.verified', o.ref, 'Demo: tour day')
   save()
   return true
 }
@@ -672,12 +720,15 @@ export const netPaid = o => o.payments.reduce((t, p) => t + (p.kind === 'capture
 export const captured = o => o.payments.filter(p => p.kind === 'capture').reduce((t, p) => t + p.amount, 0)
 export const refunded = o => o.payments.filter(p => p.kind !== 'capture').reduce((t, p) => t + p.amount, 0)
 export function adminRefundHalf(id, reason = '') { if (requireRole('admin') && !reason.trim()) throw new Error('reason_required'); if (sessionsEnabled()) refresh(); const o = orderById(id); if (!o || o.state !== 'confirmed') return; const now = new Date().toISOString()
-  const amt = Math.min(Math.round(o.line.customerGrossMinor / 2), netPaid(o)); if (amt <= 0) return; o.payments.push({ kind: 'refund', id: `ref-${o.ref}-${o.payments.length}`, amount: amt, at: now })
-  o.state = 'partially_refunded'; o.history.push({ at: now, what: 'Half refunded to the guest', detail: `refund ${amt} · ${refundFee(o, amt)}` }); settle(o, now); log('staff', 'refund.half', o.ref, String(amt), now, { reason }); save() }
+  const amt = Math.min(Math.round(o.line.customerGrossMinor / 2), netPaid(o)); if (amt <= 0) return; const note = refundNote(o, now)
+  if (!onTeya(o)) o.refundFeeUnknown = true
+  o.payments.push({ kind: 'refund', id: `ref-${o.ref}-${o.payments.length}`, amount: amt, at: now, sameDay: sameDay(o, now) })
+  o.state = 'partially_refunded'; o.history.push({ at: now, what: 'Half refunded to the guest', detail: `refund ${amt} · ${note}` }); settle(o, now); log('staff', 'refund.half', o.ref, String(amt), now, { reason }); save() }
 export function adminCancel(id, reason = '') { if (requireRole('admin') && !reason.trim()) throw new Error('reason_required'); if (sessionsEnabled()) refresh(); const o = orderById(id); if (!o || !['confirmed', 'partially_refunded', 'requested'].includes(o.state)) return; const now = new Date().toISOString()
   const paid = o.payments.filter(p => p.kind === 'capture').reduce((s, p) => s + p.amount, 0) - o.payments.filter(p => p.kind !== 'capture').reduce((s, p) => s + p.amount, 0)
-  const feeNote = paid > 0 ? refundFee(o, paid) : ''
-  if (paid > 0) o.payments.push({ kind: 'refund', id: `ref-${o.ref}-cancel`, amount: paid, at: now })
+  const feeNote = paid > 0 ? refundNote(o, now) : ''
+  if (paid > 0 && !onTeya(o)) o.refundFeeUnknown = true
+  if (paid > 0) o.payments.push({ kind: 'refund', id: `ref-${o.ref}-cancel`, amount: paid, at: now, sameDay: sameDay(o, now) })
   const k = `${o.tourId}|${o.date}|${o.startTimeId}`; if (S.taken[k]) S.taken[k] = Math.max(0, S.taken[k] - o.pax)
   o.state = 'cancelled'; o.history.push({ at: now, what: paid ? 'Cancelled, full refund' : 'Cancelled, nothing was charged', detail: paid ? `refund ${paid} · ${feeNote}` : '' }); settle(o, now); log('staff', 'booking.cancel', o.ref, '', now, { reason }); save() }
 export function togglePriceBump() { requireRole('admin'); if (sessionsEnabled()) refresh(); S.priceBump = S.priceBump ? 0 : 500; save(); return S.priceBump }

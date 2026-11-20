@@ -10,8 +10,8 @@ function draw() {
   const captured = o.payments.filter(p => p.kind === 'capture').reduce((s, p) => s + p.amount, 0)
   const refunds = o.payments.filter(p => p.kind !== 'capture')
   const settle = !['confirmed', 'partially_refunded'].includes(o.state) ? (o.state === 'cancelled' ? 'Nothing to pay: the booking was cancelled.' : 'Earned only when the booking is confirmed and paid.')
-    : store.money(o)?.released ? `Earned. The tour ran on ${dayLabel(o.date)} and Teya paid the money out to Marina. In the next monthly payout.`
-    : `Pending until the tour on ${dayLabel(o.date)}. Teya holds the guest's payment until then; if the guest cancels first, the refund costs nothing and this commission is reversed.`
+    : store.money(o)?.tourRan ? `Earned. The tour ran on ${dayLabel(o.date)}. In the next monthly payout.`
+    : `Pending until the tour on ${dayLabel(o.date)}. Commission is payable once the tour has run. If the booking is cancelled, this commission is reversed; a partial refund reduces it.`
   $('#main').innerHTML = `
     <a class="linkbtn" href="sales.html">← Your sales</a>
     <p class="eyebrow" style="margin-top:16px">${esc(o.ref || 'No booking reference yet')}</p>

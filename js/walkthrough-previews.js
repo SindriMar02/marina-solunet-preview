@@ -28,11 +28,11 @@ export function walkthroughPreviews({ seller, quote, paid }, guestLink) {
   const orderLines = paid.slice(-2).map(({ id, ref }) => {
     const order = store.orderById(id)
     const state = store.commissionStatus(order)
-    const labels = { pending: 'Held until tour day', payable: 'Payable', unconfirmed: 'Settlement unconfirmed' }
+    const labels = { pending: 'Pending until the tour runs', payable: 'Payable' }
     return [esc(ref), store.balanceOf(id), labels[state] || 'No commission']
   })
   const statement = orderLines.length ? orderLines : [
-    ['Blue Ice Cave · 2 guests', estimate(2).agentAmountMinor, 'Held until tour day'],
+    ['Blue Ice Cave · 2 guests', estimate(2).agentAmountMinor, 'Pending until the tour runs'],
     ['Blue Ice Cave · 1 guest', estimate(1).agentAmountMinor, 'Payable'],
   ]
   const link = guestLink?.split('&')[0]

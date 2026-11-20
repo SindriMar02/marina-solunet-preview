@@ -50,7 +50,7 @@ function page(t) {
       return `<li>${when}: ${Number(x.chargePercent)}% of the price is charged.</li>` }).join('')
     return `${fromBooking ? '' : `<p class="dim">Free cancellation up to ${r[0].cutoffHours} hours before the tour starts.</p>`}
       <ul class="tour-list">${bands}</ul>
-      <p class="meta held-note">Planned with Teya: your payment is held until the day of your tour. Any refund under the cancellation terms goes back to the card you paid with.</p>`
+      <p class="meta held-note">You pay Marina Travel through Teya. Any refund under the cancellation terms goes back to the card you paid with. If Marina Travel cancels, for example because of weather, you can choose a full refund or a new date.</p>`
   }
   const chips = [d?.durationText || t.duration, d?.meeting?.title ? `Starts at ${d.meeting.title}` : t.meeting,
     (d?.maxPerBooking || t.max) ? `Up to ${d?.maxPerBooking || t.max} guests per booking` : null,
@@ -128,8 +128,8 @@ function page(t) {
       ${error ? `<div class="notice ${confirmChange ? '' : 'err'}" role="alert">${error}</div>` : ''}
       <button class="btn primary full" id="go" ${st.ok && !p.error ? '' : 'disabled'}>${confirmChange ? 'Confirm and continue' : t.capacity === 'ON_REQUEST' ? 'Send booking request' : `Pay ${l2 ? isk(l2.customerGrossMinor) : 'total'}`}</button>
       <p class="meta">${t.capacity === 'ON_REQUEST' ? `On request: ${esc(store.supplier(t.supplierId).name)} confirms the booking before payment.` : 'You pay Marina Travel on its secure Bókun checkout.'}</p>
-      <p class="meta held-note">Planned with Teya: your payment is held until the day of your tour. Any refund under the cancellation terms goes back to the card you paid with.</p>
-      ${d?.cancellation?.rules?.length ? `<p class="meta">Free cancellation up to ${Math.max(...d.cancellation.rules.map(r => r.cutoffHours))} hours before the tour. <a class="linkbtn" href="#cancel">Cancellation terms</a></p>` : store.offerTerms(t.id) ? `<p class="meta">Cancellation: ${esc(store.offerTerms(t.id).cancellation)}</p>` : ''}
+      <p class="meta held-note">You pay Marina Travel through Teya. Any refund under the cancellation terms goes back to the card you paid with. If Marina Travel cancels, for example because of weather, you can choose a full refund or a new date.</p>
+      ${d?.cancellation?.rules?.length ? `<p class="meta">${Math.max(...d.cancellation.rules.map(r => r.cutoffHours)) >= 24 * 365 ? 'A cancellation charge applies from booking.' : `Free cancellation up to ${Math.max(...d.cancellation.rules.map(r => r.cutoffHours))} hours before the tour.`} <a class="linkbtn" href="#cancel">Cancellation terms</a></p>` : store.offerTerms(t.id) ? `<p class="meta">Cancellation: ${esc(store.offerTerms(t.id).cancellation)}</p>` : ''}
       <p class="proto">Demo departures. Nothing is charged. On the live site Bókun prices your exact group size; this tour's price per person changes with the number of guests.</p>`
     $('#apply').onclick = () => { code = $('#code').value.trim(); error = ''; confirmChange = false; draw(); (view().error === 'code_invalid' ? $('#code') : $('#apply')).focus() }
     const rm = $('#rmcode'); if (rm) rm.onclick = () => { code = ''; error = ''; draw(); $('#code').focus() }

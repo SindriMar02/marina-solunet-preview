@@ -87,14 +87,14 @@ $('#main').innerHTML = `
 
   <div class="site-well">
     <section class="shop-section shop-how" id="how" aria-labelledby="how-title">
-      <header class="shop-head" data-reveal><p class="eyebrow">How booking works</p><h2 id="how-title" class="shop-h2">Your money waits for your tour.</h2>
-        <p class="dim shop-sub">Send a booking request for your date. Marina Travel confirms it, then you pay by card. The payment is held until the day of your tour, and any refund under the tour's cancellation terms goes back to your card.</p></header>
+      <header class="shop-head" data-reveal><p class="eyebrow">How booking works</p><h2 id="how-title" class="shop-h2">You pay only when your date is confirmed.</h2>
+        <p class="dim shop-sub">Send a booking request for your date. Marina Travel confirms it, then you pay by card. If Marina Travel cannot confirm, you pay nothing. Each tour shows its cancellation terms before you pay.</p></header>
       <ol class="money-path" id="path">
         <li><span class="dot"></span><b>Request, then pay</b><span class="meta">Pick a date and send a request. Marina Travel confirms it by email, then you pay securely by card.</span></li>
-        <li><span class="dot"></span><b>Held until your tour</b><span class="meta">Teya, the Icelandic payment company, holds the money. Marina Travel is not paid yet.</span></li>
-        <li><span class="dot"></span><b>Your tour day</b><span class="meta">Meet your guide. After the tour, the payment goes to Marina Travel.</span></li>
+        <li><span class="dot"></span><b>Clear cancellation terms</b><span class="meta">Each tour shows its own terms before you pay, with deadlines in Iceland time. Any refund goes back to the card you paid with.</span></li>
+        <li><span class="dot"></span><b>If Marina Travel cancels</b><span class="meta">For example because of weather: choose a full refund or a new date.</span></li>
       </ol>
-      <p class="proto">Prototype · The hold is planned with Teya; its exact terms are being confirmed.</p>
+      <p class="proto">Prototype · Cancellation terms as recorded in Bókun for each tour.</p>
     </section>
 
     <a class="p-next" href="s.html?t=${east.id}" data-reveal>

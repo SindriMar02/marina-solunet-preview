@@ -12,8 +12,8 @@ const roles = [
 ]
 const money = [
   ['Guest pays Marina', 'The guest books in Bókun and pays Marina directly.'],
-  ['Teya can hold the payment', `Teya can hold the funds until tour day. ${refundPolicy}`],
-  ['Payment is released', 'When Teya holds a payment until tour day, it releases the funds to Marina on that date.'],
+  ['Teya processes the payment', `Teya takes its fees in the end-of-day batch. A refund on the same day costs Marina no fees; a later refund leaves Marina paying the original fees. ${refundPolicy}`],
+  ['Marina is paid out', 'Teya pays Marina out on a schedule agreed with Teya. Daily payout is planned, and the offer is pending.'],
   ['Commission becomes payable', 'Commission is payable once the paid tour runs. Refunds and cancellations can reduce or reverse it.'],
   ['Marina issues a statement', 'The monthly statement shows individual sales, refunds and commission. Marina handles pilot payouts.'],
 ]

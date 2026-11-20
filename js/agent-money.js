@@ -14,7 +14,7 @@ function draw() {
   const report = agentStatement(month.value)
   month.innerHTML = report.months.map(key => `<option value="${key}"${key === report.period ? ' selected' : ''}>${esc(monthLabel(key + '-01'))}</option>`).join('')
   $('#statement').innerHTML = `<div class="flow-stack" data-ledger-reveal>
-    <dl class="stat-strip inset"><div><dt>Held commission</dt><dd class="fig">${isk(report.held)}</dd><span class="note">Released after each tour has run</span></div>
+    <dl class="stat-strip inset"><div><dt>Pending commission</dt><dd class="fig">${isk(report.held)}</dd><span class="note">Payable after each tour has run</span></div>
       <div><dt>Payable commission</dt><dd class="fig key">${isk(report.payable)}</dd><span class="note">${report.payout ? `Manual payout · ${esc(report.payout.reference)} · ${esc(report.payout.at.slice(0, 10))}` : 'No manual payout reference for this month.'}</span></div></dl>
     ${ledger(['Date', 'Booking', 'Entry', 'Guest amount', 'Commission'], report.rows.map(row => [
       esc(row.at.slice(0, 10)), `<a class="linkbtn" href="sale.html?id=${encodeURIComponent(row.orderId)}">${esc(row.ref || 'Booking')}</a><p class="meta">${esc(row.tour)}</p>`,

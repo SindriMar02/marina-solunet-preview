@@ -5,9 +5,9 @@ window.addEventListener('storage', () => location.reload())
 const o = store.orderById(new URLSearchParams(location.search).get('o'))
 function heldLine(o) {
   const m = store.money(o); if (!m) return ''
-  if (m.held) return `<p class="meta held-note">Held until your tour on ${esc(dayLabel(m.releaseOn))} (planned with Teya). Marina Travel is paid after the tour.</p>`
   if (o.state === 'cancelled') return '<p class="meta held-note">Refunded in full to your card.</p>'
-  return m.released ? '<p class="meta held-note">Your tour has taken place and the payment has gone to Marina Travel.</p>' : ''
+  if (m.tourRan) return '<p class="meta held-note">Your tour has taken place. Thank you for travelling with Marina Travel.</p>'
+  return '<p class="meta held-note">Paid to Marina Travel. Any refund under your cancellation terms goes back to the card you paid with. If Marina Travel cancels, for example because of weather, you can choose a full refund or a new date.</p>'
 }
 // The status is read BEFORE any payment action is offered (BLUEPRINT P7).
 if (!o) $('#main').innerHTML = '<h1 class="h-page">Booking not found</h1><p class="notice err" style="margin-top:16px">This link does not match a booking in this browser. Call Marina Travel on <a href="tel:+3548678899">+354 867 8899</a> or <a href="shop.html">see the tours</a>.</p>'

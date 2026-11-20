@@ -15,8 +15,11 @@ function draw() {
   os.forEach(o => (groups[o.agentId || 'direct'] ||= []).push(o))
   const paid = o => ['confirmed', 'partially_refunded'].includes(o.state)
   const moneyNote = o => { const m = store.money(o); if (!m) return ''
-    const fee = m.refundFeeMinor ? ` · refund fee ${isk(m.refundFeeMinor)}` : (store.refunded(o) ? ' · refund fee 0 kr' : '')
-    return `<div class="sub">${m.held ? `Held until ${esc(dayLabel(m.releaseOn))} (planned Teya hold)` : m.released ? 'Paid out to Marina' : m.unknown ? 'Paid before the hold: settlement unknown' : 'Refunded'}${m.feeUnknown ? ' · refund fee unknown' : fee}</div>` }
+    if (m.unknown) return '<div class="sub">Paid on the earlier payment path · fees unknown</div>'
+    const day = m.sameDayOpen ? 'Same Teya day: a refund now costs no fees' : m.net > 0 ? `Fees taken at Teya’s day end · payout ${esc(dayLabel(m.payoutOn))} (planned)` : 'Refunded in full'
+    const fee = m.feeMinor ? ` · example fee ${isk(m.feeMinor)}${m.sameDayOpen ? ' at day end' : ''}` : store.refunded(o) ? ' · fee 0 kr' : ''
+    const lost = m.refundFeeMinor ? ` · on refunded money ${isk(m.refundFeeMinor)}` : ''
+    return `<div class="sub">${day}${fee}${lost}${m.feeToConfirm ? ' · Teya to confirm' : ''}${m.tourRan ? ' · tour ran' : ''}</div>` }
   const net = o => o.payments.reduce((t, p) => t + (p.kind === 'capture' ? p.amount : -p.amount), 0)
   $('#t').innerHTML = `<thead><tr><th>Departure</th><th>Tour · booking</th><th>Supplier</th><th class="num">Guests</th><th>Status</th><th>Credited</th><th class="num">Customer paid, net</th><th class="num">Commission</th><th>Demo actions</th></tr></thead>
   <tbody>${Object.entries(groups).map(([aid, list]) => { const a = store.agent(aid)
@@ -34,7 +37,8 @@ function draw() {
             <button class="btn" data-response="rejected" data-id="${o.id}">Reject</button>
             <button class="btn" data-response="expired" data-id="${o.id}">Expire</button></fieldset>` : ''}
           ${o.refundCase ? '<p class="meta">Refund case opened</p>' : ''}
-          ${store.money(o)?.held && ['confirmed', 'partially_refunded'].includes(o.state) ? `<button class="btn" data-a="tourday" data-id="${o.id}">Tour day</button>` : ''}
+          ${store.money(o)?.sameDayOpen && ['confirmed', 'partially_refunded'].includes(o.state) ? `<button class="btn" data-a="closeday" data-id="${o.id}">End of day</button>` : ''}
+          ${store.money(o) && !store.money(o).tourRan && ['confirmed', 'partially_refunded'].includes(o.state) ? `<button class="btn" data-a="tourday" data-id="${o.id}">Tour day</button>` : ''}
           ${o.state === 'confirmed' ? `<button class="btn" data-a="half" data-id="${o.id}">Refund half</button>` : ''}
           ${['confirmed', 'partially_refunded', 'requested'].includes(o.state) ? `<button class="btn" data-a="cancel" data-id="${o.id}">Cancel · full refund</button>` : ''}
         </div></td></tr>` }).join('') }).join('')}</tbody>
@@ -49,13 +53,18 @@ function draw() {
   })
   document.querySelectorAll('[data-a]').forEach(button => button.onclick = event => {
     const action = button.dataset.a, id = button.dataset.id, order = store.orderById(id)
-    const title = { half: 'Refund half', cancel: 'Cancel and refund', tourday: 'Mark the tour as run' }[action]
-    const settleTour = action === 'tourday'
+    const title = { half: 'Refund half', cancel: 'Cancel and refund', tourday: 'Mark the tour as run', closeday: 'End the payment day' }[action]
+    const settleTour = action === 'tourday' || action === 'closeday'
+    const m = store.money(order)
+    const refundCost = m?.unknown ? 'This payment went through the earlier payment path, so its fees are unknown.'
+      : m?.sameDayOpen ? 'Same Teya day as the payment: this refund costs Marina no transaction fees.'
+      : `Teya’s day-end batch has run: no fee is deducted from the guest’s refund, and Marina keeps paying the original fees (example ${isk(m?.feeMinor || 0)}). Teya adds no refund fee.`
     sheet({
       title, opener: button, viaKey: event.detail === 0,
       body: `<form class="flow" novalidate><p>${esc(order.ref || id)} · ${esc(store.tour(order.tourId).title)}</p>
-        ${settleTour ? '<p>Simulate Teya releasing the funds to Marina and making commission payable.</p>' :
-          `${field({ id: 'refund-reason', label: 'Reason', type: 'textarea' })}
+        ${action === 'closeday' ? '<p>Simulate Teya’s end-of-day batch: the fees are taken and the payout follows on the next business day. After this, a refund leaves Marina with the original fees.</p>'
+          : settleTour ? '<p>Record that the tour has run. The seller’s commission becomes payable in the next monthly statement.</p>' :
+          `<p class="meta">${esc(refundCost)}</p>${field({ id: 'refund-reason', label: 'Reason', type: 'textarea' })}
           <label class="checkline"><input type="checkbox" id="sales-mfa">Confirm staff verification (prototype)</label>`}
         <p class="hint err" role="alert" id="sales-error"></p><div><button class="btn primary">Confirm</button></div></form>`,
       onOpen(dialog, close) {
@@ -68,7 +77,7 @@ function draw() {
             return
           }
           try {
-            const operation = { half: store.adminRefundHalf, cancel: store.adminCancel, tourday: store.adminRunTourDay }[action]
+            const operation = { half: store.adminRefundHalf, cancel: store.adminCancel, tourday: store.adminRunTourDay, closeday: store.adminCloseDay }[action]
             operation(id, $('#refund-reason', dialog)?.value)
             close()
             draw()

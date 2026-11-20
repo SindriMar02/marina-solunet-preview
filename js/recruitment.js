@@ -121,4 +121,4 @@ export function journeyUrl(page, { guided, source }) {
 }
 
 export const pilotExample = 'Pilot example: Marina confirms the pilot departure.'
-export const refundPolicy = 'Marina can avoid a processing fee on eligible refunds while Teya holds the payment. Your tour’s cancellation rules determine the refund.'
+export const refundPolicy = 'The tour’s cancellation terms decide the refund. Card fees are Marina’s cost and are never deducted from a guest’s refund.'

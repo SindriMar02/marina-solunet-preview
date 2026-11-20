@@ -20,7 +20,7 @@ function draw() {
   else if (p.error) foot = `<p class="notice" role="status">${esc(store.saleError(p.error) || 'Ask your seller for an updated quote.')}</p>`
   else foot = `<button class="btn primary full" id="go">${t.capacity === 'ON_REQUEST' ? 'Send booking request' : `Pay ${isk(q.totalMinor)}`}</button>
       <p class="meta">You pay Marina Travel on its secure Bókun checkout. Price and seats are checked again when you pay; this quote does not hold seats.</p>
-      <p class="meta held-note">${t.capacity === 'ON_REQUEST' ? 'Marina Travel confirms the date first, then you pay. ' : ''}Planned with Teya: your payment is held until the day of your tour. Any refund under the cancellation terms goes back to the card you paid with.</p><p class="proto">Demo prices. Nothing is charged.</p>`
+      <p class="meta held-note">${t.capacity === 'ON_REQUEST' ? 'Marina Travel confirms the date first, then you pay. ' : ''}You pay Marina Travel through Teya. Any refund under the cancellation terms goes back to the card you paid with. If Marina Travel cancels, for example because of weather, you can choose a full refund or a new date.</p><p class="proto">Demo prices. Nothing is charged.</p>`
   $('#main').innerHTML = `
     <p class="eyebrow">Quote from ${esc(a.name)} · ${esc(a.sellerId)}</p>
     <article class="paper" style="margin-top:14px" aria-label="Quote">

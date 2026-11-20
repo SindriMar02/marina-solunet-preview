@@ -22,13 +22,13 @@ const tickRow = (name, value) => row(name, `${value ? value + ' ' : ''}${check}`
 const features = [
   ['Apply in 10 minutes', 'Tell Marina how you reach travellers and verify your email. A short test checks your sales judgment, product knowledge and customer communication. Marina reviews the applications that qualify.'],
   ['Your link, QR and quotes', 'Once approved, you get your own seller number, a personal link and a QR code. Use the seller hub to share the tour or prepare a quote for a group.'],
-  ['Guests pay Marina directly', `Guests book through Bókun and pay Marina through Teya. Teya can hold the payment until tour day. ${refundPolicy}`],
+  ['Guests pay Marina directly', `Guests book through Bókun and pay Marina through Teya. ${refundPolicy}`],
   ['Every sale and krona on your phone', 'See paid bookings as they come in. Your monthly statement records sales, refunds and commission. Commission is payable after the tour has run.'],
 ]
 const featureArts = [
   ['Application', 'About you', row('Full name', 'Anna') + row('Country', 'Iceland') + row('Languages', 'Icelandic, English') + tickRow('Email verified', '')],
   ['Seller tools', 'Ready to share', `<div class="feature-share">${sampleQr}<div><strong>Sample booking link</strong><a class="linkbtn" href="${esc(sampleLink)}"><code>${esc(sampleLink)}</code></a></div></div>` + row('Seller number', 'MT-00001')],
-  ['Bókun checkout', 'Blue Ice Cave', `<p class="feature-example">${pilotExample}</p>` + row('Total for two guests', isk(store.priceOf(pilot[0]) * 2)) + row('Teya', '<span class="status">Payment held</span>')],
+  ['Bókun checkout', 'Blue Ice Cave', `<p class="feature-example">${pilotExample}</p>` + row('Total for two guests', isk(store.priceOf(pilot[0]) * 2)) + row('Teya', '<span class="status">Paid to Marina</span>')],
   ['Monthly statement', 'Anna · MT-00001', `<div class="preview-row"><span><time datetime="2026-12-12">12 Dec 2026</time><br>Blue Ice Cave · 2 guests</span><strong>${isk(exampleCommission)}<br><span class="status">After the tour</span></strong></div><p class="feature-example">${pilotExample}</p>`],
 ]
 const featurePreview = ([label, title, body], className, inert = false) =>
@@ -36,7 +36,7 @@ const featurePreview = ([label, title, body], className, inert = false) =>
 const faq = [
   ['When do I earn commission?', 'You earn commission only on paid tours that run and are not cancelled. Commission becomes payable after the tour date and is paid monthly, with a statement.'],
   ['How does the discount work?', 'You can give a guest up to 5% off. The discount comes out of your commission rate. A 5% discount brings a 17% rate down to 12% of the eligible list price before VAT.'],
-  ['Who handles payment and cancellations?', `The guest pays Marina directly. Teya can hold the payment until the tour date. ${refundPolicy}`],
+  ['Who handles payment and cancellations?', `The guest pays Marina directly through Teya, and Marina handles cancellations and refunds. ${refundPolicy}`],
   ['What is the test like?', `The test has ${store.TEST_BANK.length} questions and a ${store.TEST_MINUTES}-minute time limit. It covers selling, the tour, customer communication, tourism basics and common situations. Qualifying applications go to Marina for review. If you need an accommodation, call Marina before starting.`],
   ['How long does review take?', 'Review time depends on application volume. If your application goes to review, your status page gives you a reply estimate. If approved, you’ll receive an invitation at your verified address.'],
   ['What do I need to start?', 'There’s no fee and no stock to buy. Tell us about your experience, the languages you sell in and how you reach travellers. You can work wherever you are based. Marina checks the markets and languages it can support in the pilot.'],
