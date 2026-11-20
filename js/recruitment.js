@@ -1,6 +1,12 @@
 import { applicantSession, guardPage, principal } from './session.js'
 import { $, $$, esc, qs, isk, stamp } from './ui.js'
-import { applicantLink, priceLine, TERMS_VERSION } from './store.js'
+import { ANNA_EMAIL, applicantLink, priceLine, TERMS_VERSION } from './store.js'
+
+export const annaProfile = {
+  name: 'Anna', country: 'Iceland', email: ANNA_EMAIL, languages: 'Icelandic, English', markets: 'Iceland and English-speaking visitors',
+  salesExperience: 'I help guests choose tours.', tourismExperience: 'I work at Marina Travel and am testing the external agent experience.',
+  channels: 'Direct recommendations and email',
+}
 
 export const accessUrl = (page, access) => `${page}.html${access ? `?access=${encodeURIComponent(access)}` : ''}`
 export function accessKey() {
@@ -23,7 +29,6 @@ export function guardApplicant(access) {
 export const timeText = date => `${stamp(date)} Iceland time`
 export const timeTag = date => `<time datetime="${esc(date)}">${esc(timeText(date))}</time>`
 export const root = $('#main')
-export function recruitmentMotion() { document.body.classList.add('workbench', 'recruitment') }
 export const focusHeading = (area = root) => area.querySelector('h1, h2, legend')?.focus()
 export const field = ({ id, label, value = '', type = 'text', required = true, help = '', autocomplete = 'off', max = 1500 }) => `
   <div class="field">
@@ -34,26 +39,37 @@ export const field = ({ id, label, value = '', type = 'text', required = true, h
     <p id="${id}-help" class="hint">${esc(help)}</p><p id="${id}-error" class="hint err" role="alert"></p>
   </div>`
 
-export function validateFields(form) {
-  let first
-  for (const input of $$('input, textarea', form)) {
-    const error = $('#' + input.id + '-error', form)
-    if (!error) continue
-    const emailInvalid = input.type === 'email' && input.value
-      && !/^[^\s@]{1,64}@[^\s@]{1,190}\.[a-z]{2,24}$/i.test(input.value.trim())
-    // Say what is missing in the field's own words: "Add your name", not a generic "required".
-    const label = (form.querySelector(`label[for="${input.id}"]`)?.textContent || 'this field').trim().replace(/\s*\(.*\)$/, '')
-    const defaultMessage = input.required && !input.value.trim() ? `Add your ${label.charAt(0).toLowerCase() + label.slice(1)}.`
-      : input.validity.typeMismatch || emailInvalid ? 'Enter a valid email address.' : ''
-    error.textContent = defaultMessage
-    if (defaultMessage) {
-      input.setAttribute('aria-invalid', 'true')
-      first ||= input
-    } else input.removeAttribute('aria-invalid')
-  }
-  first?.focus()
-  return !first
+function validateField(input) {
+  const error = input.form && $('#' + input.id + '-error', input.form)
+  if (!error) return true
+  const emailInvalid = input.type === 'email' && input.value
+    && !/^[^\s@]{1,64}@[^\s@]{1,190}\.[a-z]{2,24}$/i.test(input.value.trim())
+  const label = (input.labels?.[0]?.textContent || 'this field').trim().replace(/\s*\(.*\)$/, '')
+  const missing = input.required && (input.type === 'checkbox' ? !input.checked : !input.value.trim())
+  let message = ''
+  if (missing) message = input.dataset.requiredMessage || `Add your ${label.charAt(0).toLowerCase() + label.slice(1)}.`
+  else if (input.validity.typeMismatch || emailInvalid) message = 'Enter a valid email address.'
+  else if (input.minLength > 0 && input.value && input.value.length < input.minLength) message = `Enter at least ${input.minLength} characters.`
+  if (error.textContent !== message) error.textContent = message
+  if (message) input.setAttribute('aria-invalid', 'true')
+  else input.removeAttribute('aria-invalid')
+  return !message
 }
+
+export function validateFields(form) {
+  const invalid = $$('input, textarea', form).filter(input => !validateField(input))
+  invalid[0]?.focus()
+  return !invalid.length
+}
+
+root?.addEventListener('focusout', event => {
+  // Submit handles validation itself. A blur error can move the button between pointer down and click.
+  if (event.relatedTarget?.matches('button, a')) return
+  if (event.target.matches('.field input, .field textarea') && event.target.closest('.application-content, .identity-panel')) validateField(event.target)
+})
+root?.addEventListener('input', event => {
+  if (event.target.matches('input[aria-invalid], textarea[aria-invalid]') && event.target.closest('.application-content, .identity-panel')) validateField(event.target)
+})
 
 export function answerRows(item, { name = item.id, choice, headingId } = {}) {
   return `<fieldset class="answer-set">
@@ -76,7 +92,7 @@ export const TERMS = [
   'You choose where, when and how you find customers. Income is commission-based and there is no guaranteed income. You are responsible for your own taxes.',
   'You sell as an independent agent. Marina Travel runs the tours, sets prices and availability, takes guest payments through Bókun and supports the guest.',
   'Use Marina-approved prices, sales text and images. Send guests to Marina for payment and for the cancellation terms that apply to their booking.',
-  'Commission is calculated on the eligible list price before VAT. A guest discount uses part of the agent’s commission rate. Refunds can reduce the commission.',
+  'Commission is calculated on the eligible list price before VAT. A guest discount uses part of the agent’s commission rate. Commission is earned only on paid tours that run, and is paid monthly after the tour date. Each tour’s cancellation rules apply.',
   'The pilot screens use simulated bookings, payments and invitations. Bank details will be collected securely before the first payout, subject to Marina’s approval of the process.',
 ]
 export const termsDownload = () => URL.createObjectURL(new Blob([
@@ -96,3 +112,13 @@ export function journey() {
   const guided = qs('demo') === 'anna'
   return { guided, source: (qs('src') || (guided ? 'anna-demo' : '')).slice(0, 120) }
 }
+
+export function journeyUrl(page, { guided, source }) {
+  const params = new URLSearchParams()
+  if (guided) params.set('demo', 'anna')
+  if (source) params.set('src', source)
+  return `${page}.html${params.size ? '?' + params : ''}`
+}
+
+export const pilotExample = 'Pilot example: Marina confirms the pilot departure.'
+export const refundPolicy = 'Marina can avoid a processing fee on eligible refunds while Teya holds the payment. Your tour’s cancellation rules determine the refund.'

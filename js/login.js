@@ -1,10 +1,11 @@
-import { $, esc, siteShell } from './ui.js'
+import { funnelShell } from './funnel.js'
+import { $, esc } from './ui.js'
 import { field, focusHeading, root, validateFields } from './recruitment.js'
 import { agentIdentity, localDestination, readSession, STAFF, startSession } from './session.js'
 import { promotedReviewer, recordSession, signInAgents } from './store.js'
 
-siteShell()
-document.body.classList.add('workbench', 'identity-page')
+funnelShell()
+document.body.classList.add('identity-page')
 const params = new URLSearchParams(location.search)
 const notice = params.has('expired') || readSession().expired ? 'Your session expired. Sign in again to continue.'
   : params.has('signedout') ? 'You’re signed out.' : ''
@@ -38,7 +39,7 @@ function draw(step = 'identify') {
       $('#email').focus()
       return
     }
-    if (event.submitter.value === 'passkey') continueSignIn()
+    if (event.submitter?.value === 'passkey') continueSignIn()
     else draw('link')
   }
   else if (step === 'workspace') {

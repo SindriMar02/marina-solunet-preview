@@ -1,18 +1,17 @@
+import { applicationShell, applicationStep } from './application-shell.js'
 import * as store from './store.js'
-import { $, $$, esc, siteShell } from './ui.js'
-import { recruitmentMotion, guardApplicant, accessKey, accessUrl, answerRows, selectNumberKey, focusHeading, rememberAccess, root, TEST_CATEGORIES, timeTag } from './recruitment.js'
+import { $, $$, esc } from './ui.js'
+import { guardApplicant, accessKey, accessUrl, answerRows, selectNumberKey, focusHeading, rememberAccess, pilotExample, root, TEST_CATEGORIES, timeTag } from './recruitment.js'
 
 const access = accessKey()
 guardApplicant(access)
-siteShell()
-recruitmentMotion()
+applicationShell()
 const status = accessUrl('status', access)
 const bank = store.TEST_BANK
 const full = store.TEST_MINUTES * 60
 let attempt
 let interval
 let busy = false
-let warned
 let pending = Promise.resolve()
 if (store.applicationByAccess(access)) rememberAccess(access)
 
@@ -20,9 +19,13 @@ function draw(moveFocus = false) {
   clearInterval(interval)
   const app = store.applicationByAccess(access)
   attempt = app?.attempt?.fixtureOnly ? null : app?.attempt
+  applicationStep(attempt?.submittedAt ? 4 : 3, app, undefined, { known: Boolean(app?.verifiedAt) })
   if (attempt?.submittedAt) {
     root.innerHTML = `<header><p class="eyebrow">Agent test · Receipt</p><h1 class="h-page" tabindex="-1">Your test was received</h1>
-      <p>Received ${timeTag(attempt.submittedAt)}. The demo reply estimate is ${timeTag(app.replyBy)}.</p>
+      <div class="score-card"><strong>${attempt.score}<small> / 100</small></strong><span>Test score · Pass mark ${attempt.threshold}/100</span></div>
+      <p>${['eligible', 'look_closer', 'reconsideration'].includes(app.state)
+        ? `Marina will review your application. Expected reply ${timeTag(app.replyBy)} (demo estimate).`
+        : 'Open your application status to see the outcome and your next step.'}</p>
       <p class="proto">Prototype · Keep your status link to follow your application.</p></header>
       <div class="actions"><a class="btn primary" href="${esc(status)}">View application status</a><a class="btn" href="index.html#demo-story">Back to the demo</a></div>`
   } else if (attempt?.expiredAt) {
@@ -47,8 +50,8 @@ function drawRules(app) {
       <li><span>Attempts</span><span class="v num">One</span></li>
     </ol>
     <div class="flow-stack">
-      <p>You can go back and change answers within your attempt. On a question page, use keys 1–4 to choose an answer or use the radio controls.</p>
-      <p>Answer every question and submit before time runs out. If you reload or lose your connection, reopen the same test link in this browser. The timer keeps running.</p>
+      <p>If you lose connection, keep this tab open. To reload, reconnect and open the same link in this browser. The timer continues.</p>
+      <p>You can go back and change answers within your attempt. On a question page, use keys 1–4 to choose an answer or use the radio controls. Answer every question and submit before time runs out.</p>
       <p>For a test accommodation, contact Marina before starting.</p><div><a class="linkbtn" href="tel:+3548678899">Call Marina at +354 867 8899</a></div>
     </div>
     <p class="proto">Prototype · Your answers stay in this browser.</p>
@@ -71,17 +74,26 @@ function drawAttempt() {
   const position = attempt.position
   const item = bank[position]
   const incomplete = bank.flatMap((q, i) => q.id in attempt.answers ? [] : [i])
-  root.innerHTML = `
+  if (!$('#attempt-content')) root.innerHTML = `
     <header>
       <p class="eyebrow">Marina Travel · Agent test</p>
-      <h1 class="h-page" tabindex="-1">${item ? `Question ${position + 1} of ${bank.length}` : 'Review and submit'}</h1>
+      <h1 class="h-page" tabindex="-1"></h1>
     </header>
     <div class="timer">
       <p class="meta num" id="clock" role="timer"></p>
       <progress class="meter" id="remaining" max="${full}" aria-label="Time remaining"></progress>
       <p class="hint warn" id="warning" role="status"></p>
     </div>
-    ${item ? `<div id="question">${answerRows(item, { choice: attempt.answers[item.id] })}</div>
+    <div id="attempt-content"></div>`
+  $('h1', root).textContent = item ? `Question ${position + 1} of ${bank.length}` : 'Review and submit'
+  const showExample = ['ice-size', 'age', 'request', 'family'].includes(item?.id)
+  const prompt = {
+    'ice-size': 'What is the party size for the example ice cave tour?',
+    age: 'What minimum age is listed for both example tours?',
+  }[item?.id]
+  const questionCopy = prompt ? { ...item, prompt } : item
+  $('#attempt-content').innerHTML = `
+    ${item ? `<div id="question">${showExample ? `<p class="hint test-example">${pilotExample}</p>` : ''}${answerRows(questionCopy, { choice: attempt.answers[item.id] })}</div>
       <div class="actions"><button type="button" class="btn" id="prev"${position === 0 ? ' disabled' : ''}>Back</button>
         <button type="button" class="btn primary" id="next">${position === bank.length - 1 ? 'Review answers' : 'Next question'}</button>
         <button type="button" class="linkbtn" id="review">Go to review</button></div>`
@@ -161,10 +173,7 @@ function tick() {
   }
   const warning = seconds > 300 ? '' : seconds > 60 ? 'Five minutes or less remain.' : seconds ? 'One minute or less remains.' : 'Time is up.'
   const announcement = $('#warning')
-  if (warning && warned !== warning) {
-    warned = warning
-    announcement.textContent = warning
-  }
+  if (announcement.textContent !== warning) announcement.textContent = warning
   if (!seconds) { clearInterval(interval); void syncAttempt() }
 }
 

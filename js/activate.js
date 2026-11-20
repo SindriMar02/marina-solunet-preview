@@ -1,21 +1,24 @@
+import { applicationShell, applicationStep } from './application-shell.js'
 import { agentIdentity, principal, startSession } from './session.js'
 import * as store from './store.js'
-import { $, esc, qs, siteShell, copy, qrSvg } from './ui.js'
-import { recruitmentMotion, accessUrl, field, focusHeading, root, TERMS, termsDownload, timeTag, validateFields } from './recruitment.js'
+import { $, esc, qs, copy, qrSvg } from './ui.js'
+import { accessUrl, field, focusHeading, root, TERMS, termsDownload, timeTag, validateFields } from './recruitment.js'
 
-siteShell()
-recruitmentMotion()
+applicationShell()
 const key = qs('inv')
 const resetUrl = 'index.html#demo-story'
 const termsUrl = termsDownload()
 let step = 0
 let email = ''
 let version = ''
+let address = ''
+let phone = ''
 
 function render(moveFocus = false) {
   const invite = store.invitation(key)
   const app = store.applicationFromInvitation(key)
   const seller = store.agent(invite?.agentId)
+  applicationStep(5, app, seller?.sellerId, { complete: Boolean(app && invite?.consumedAt), known: Boolean(app) })
   if (invite?.consumedAt) {
     if (app && seller?.state === 'active' && principal()?.id === seller.id) void ready(app, seller, moveFocus)
     else location.replace('login.html?next=a%2Fsell.html')
@@ -62,15 +65,22 @@ function render(moveFocus = false) {
     $('form', root).onsubmit = event => { event.preventDefault(); version = store.TERMS_VERSION; advance(2) }
   } else {
     root.innerHTML = `<header><p class="eyebrow">Seller activation · Step 3 of 3</p><h1 class="h-page" tabindex="-1">Complete your profile</h1>
-      <p>Bank details will be collected securely before your first payout, subject to Marina’s approval of the process.</p>
-      <p class="proto">Prototype · Use a fictional address and phone number.</p></header>
+      <p>Your email is confirmed. Add your contact details and preview how payout setup will work.</p>
+      <p class="proto">Prototype · Use fictional details in every field.</p></header>
       <form novalidate>
-        ${field({ id: 'address', label: 'Address', type: 'textarea' })}
-        ${field({ id: 'phone', label: 'Phone', type: 'tel', autocomplete: 'tel', max: 80 })}
+        ${field({ id: 'demo-password', label: 'Fictional password', type: 'password', autocomplete: 'new-password', help: 'Use a sample password of at least 8 characters. This value is never saved.' })}
+        ${field({ id: 'address', label: 'Address', type: 'textarea', value: address })}
+        ${field({ id: 'phone', label: 'Phone', type: 'tel', value: phone, autocomplete: 'tel', max: 80 })}
+        <fieldset class="bank-preview"><legend class="h-task">Payout details</legend>
+          <p class="hint">Use the sample values below. The prototype does not save payout details.</p>
+          ${field({ id: 'bank-name', label: 'Account holder', value: 'Sample Seller' })}
+          ${field({ id: 'bank-number', label: 'IBAN or local account number', value: 'DEMO-000000' })}
+        </fieldset>
         <p class="hint err" id="activation-error" role="alert"></p>
         <div class="actions"><button type="button" class="btn" id="back">Back</button><button class="btn primary" type="submit">Activate my account</button></div>
       </form>`
-    $('#back').onclick = () => advance(1)
+    $('#demo-password').minLength = 8
+    $('#back').onclick = () => { address = $('#address').value; phone = $('#phone').value; advance(1) }
     $('form', root).onsubmit = async event => {
       event.preventDefault()
       if (!validateFields(event.currentTarget)) return
@@ -104,7 +114,7 @@ function advance(next) { step = next; render(true) }
 
 async function ready(app, seller, moveFocus) {
   const url = new URL(`s.html?k=${app.linkKey}`, location.href).href
-  root.innerHTML = `<header><p class="eyebrow">Seller account · Active</p><h1 class="h-page" tabindex="-1">Your link is ready</h1>
+  root.innerHTML = `<header><p class="eyebrow">Seller account · Active</p><h1 class="h-page" tabindex="-1">Your seller hub is ready</h1>
     <p>Your seller number is <strong class="mt">${esc(seller.sellerId)}</strong>. Share your personal link or QR code to credit tour bookings to your account.</p></header>
     <div class="qr" id="qr" aria-label="QR code for your personal seller link"></div>
     <a class="url linkbtn" href="${esc(url)}">${esc(url)}</a>

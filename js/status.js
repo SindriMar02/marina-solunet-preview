@@ -1,11 +1,11 @@
+import { applicationShell, applicationStep } from './application-shell.js'
 import * as store from './store.js'
-import { $, esc, siteShell } from './ui.js'
-import { recruitmentMotion, guardApplicant, accessKey, accessUrl, field, focusHeading, rememberAccess, root, timeTag, validateFields } from './recruitment.js'
+import { $, esc } from './ui.js'
+import { guardApplicant, accessKey, accessUrl, field, focusHeading, rememberAccess, root, timeTag, validateFields } from './recruitment.js'
 
 const access = accessKey()
 guardApplicant(access)
-siteShell()
-recruitmentMotion()
+applicationShell()
 const messages = {
   signed: 'Your seller account is active.',
   submitted: 'Verify your email to open the test.',
@@ -24,6 +24,7 @@ const messages = {
 function render(moveFocus = false) {
   const app = store.applicationByAccess(access)
   if (!app) {
+    applicationStep(4, undefined, undefined, { known: false })
     root.innerHTML = `<header><p class="eyebrow">Application status</p><h1 class="h-page" tabindex="-1">This status link is unavailable</h1>
       <p>Open the private status link from your application email. Demo links are available for 30 days in the browser where you applied.</p></header>
       <div class="actions"><a class="btn" href="apply.html">Open the application</a><a class="btn" href="index.html">Back to the demo</a></div>`
@@ -33,16 +34,18 @@ function render(moveFocus = false) {
   const attempt = app.attempt?.fixtureOnly ? null : app.attempt
   const seller = store.agent(app.agentId)
   const active = Boolean(seller?.activatedAt)
+  applicationStep(active || app.state === 'approved' ? 5 : attempt?.submittedAt || attempt?.expiredAt ? 4 : app.verifiedAt ? 3 : 2, app, seller?.sellerId, { complete: active })
   const invite = store.invitationFor(app)
   const canOpen = invite && Date.parse(invite.expiresAt) > Date.now()
   const canLeaveWaitlist = app.state === 'waitlist' && store.intakeState() === 'open'
   const canAppeal = ['rejected', 'not_qualified', 'timed_out'].includes(app.state)
   const record = [
     ['Application received', app.createdAt, app.state === 'waitlist' ? 'Waitlist request' : 'Received'],
-    ['Email verified', app.verifiedAt, app.state === 'waitlist' ? 'On the waitlist' : 'Awaiting verification'],
+    ['Email verified', app.verifiedAt, app.verifiedAt ? 'Confirmed' : app.state === 'waitlist' ? 'On the waitlist' : 'Awaiting verification'],
     ['Test done', attempt?.submittedAt || attempt?.expiredAt, attempt?.expiredAt ? 'Time expired' : attempt?.submittedAt ? 'Received' : attempt?.startedAt ? 'In progress' : 'Awaiting test'],
     ['In review', app.reviewAt, app.reviewAt ? 'Marina review team' : 'Awaiting review'],
     ['Decision', app.decidedAt || (app.state === 'not_qualified' ? attempt?.submittedAt : null), ({ not_qualified: 'No shortlist place', approved: 'Approved', rejected: 'Rejected', look_closer: 'Taking a closer look', reconsideration: 'Reconsideration requested', waitlist: 'Waitlisted' })[app.state] || 'Pending'],
+    ['Seller account', seller?.activatedAt, active ? 'Active' : app.state === 'approved' ? 'Invitation available' : 'Awaiting decision'],
   ]
   root.innerHTML = `
     <header><p class="eyebrow">Application status</p><h1 class="h-page" tabindex="-1">${esc(app.name)}</h1>
@@ -51,7 +54,7 @@ function render(moveFocus = false) {
       <p class="proto">Prototype · Application details live in this browser.</p>
     </header>
     <ol class="formula status-history">
-      ${record.map(([label, at, detail]) => `<li><strong>${label}</strong><span class="status ${at ? 'confirmed' : 'pending'}">${at ? timeTag(at) : 'Pending'}</span>
+      ${record.map(([label, at, detail]) => `<li class="${at ? 'complete' : ''}"><strong>${label}</strong><span class="status ${at ? 'confirmed' : 'pending'}">${at ? timeTag(at) : 'Pending'}</span>
         <span class="why">${esc(detail)}</span></li>`).join('')}
     </ol>
     ${app.state === 'not_qualified' && attempt ? `<p class="notice">Your test scored ${attempt.score}/100. The pass mark for your attempt was ${attempt.threshold}/100.</p>` : ''}

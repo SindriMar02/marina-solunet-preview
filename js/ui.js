@@ -225,10 +225,10 @@ export function sheet({ title, body, onOpen, onClose, opener, viaKey }) {
 
 /** QR via qrcode-generator (cdnjs, loaded once). Dark navy modules on a cream quiet zone. */
 let qrLib
-export async function qrSvg(text) {
+export async function qrSvg(text, { example = false } = {}) {
   if (!qrLib) qrLib = new Promise((res, rej) => { const s = document.createElement('script'); s.src = 'https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js'; s.onload = () => res(window.qrcode); s.onerror = rej; document.head.append(s) })
   try { const q = (await qrLib)(0, 'M'); q.addData(text); q.make(); return q.createSvgTag({ cellSize: 6, margin: 0, scalable: true }).replace(/fill="black"/g, 'fill="#1c2b3a"') }
-  catch { return '<p class="meta">QR unavailable offline. Use the link.</p>' }
+  catch { return `<p class="meta">${example ? 'Example QR' : 'QR unavailable offline. Use the link.'}</p>` }
 }
 
 export const base = () => location.href.replace(/\/(a|m)\/[^/]*$/, '/').replace(/\/[^/]*$/, '/')

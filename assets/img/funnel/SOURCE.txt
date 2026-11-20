@@ -1,0 +1,1 @@
+ice-silk-hero.jpg, ice-silk-cta.jpg: generated 20 Nov 2026 with Higgsfield gpt_image_2_6 (0.5 credits total), abstract glacial ice, no people. Prompt in ../../../docs/BRIEF-FUNNEL.md.

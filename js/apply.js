@@ -1,9 +1,11 @@
+import { applicationShell, applicationStep, sellerPreview } from './application-shell.js'
 import { principal } from './session.js'
 import * as store from './store.js'
-import { $, esc, qs, siteShell } from './ui.js'
-import { recruitmentMotion, accessKey, accessUrl, field, focusHeading, journey, rememberAccess, root, TERMS, validateFields } from './recruitment.js'
+import { $, esc, qs } from './ui.js'
+import { accessKey, accessUrl, annaProfile, field, focusHeading, journey, journeyUrl, rememberAccess, root, TERMS, validateFields } from './recruitment.js'
 
 const { guided, source } = journey()
+const recruitmentUrl = journeyUrl('become', { guided, source })
 const startMarker = 'solunet-start-' + source
 if (!qs('mail') && !sessionStorage.getItem(startMarker)) {
   sessionStorage.setItem(startMarker, '1')
@@ -13,11 +15,7 @@ const draftKey = guided ? 'solunet-anna-draft' : 'solunet-application-draft'
 const mailKey = guided ? 'solunet-anna-mail' : 'solunet-application-mail'
 const read = key => JSON.parse(sessionStorage.getItem(key) || 'null')
 const saved = read(draftKey)
-const demo = guided ? {
-  name: 'Anna', country: 'Iceland', email: store.ANNA_EMAIL, languages: 'Icelandic, English', markets: 'Iceland and English-speaking visitors',
-  salesExperience: 'I help guests choose tours.', tourismExperience: 'I work at Marina Travel and am testing the external agent experience.',
-  channels: 'Direct recommendations and email',
-} : {}
+const demo = guided ? { ...annaProfile } : {}
 let draft = saved?.fields || demo
 const stepIndex = value => Math.max(0, Math.min(2, Number.parseInt(value ?? '0', 10) || 0))
 let step = stepIndex(qs('step') ?? saved?.step)
@@ -25,10 +23,9 @@ let mail = read(mailKey)
 const explicitAccess = qs('access')
 if (explicitAccess) rememberAccess(explicitAccess)
 const pageActor = principal()?.sessionId
-siteShell()
-recruitmentMotion()
+applicationShell()
 if (explicitAccess) mail = null
-const steps = ['About you', 'How you sell', 'Confirm']
+const steps = ['About you', 'How you sell', 'Agreement']
 const fields = [
   [
     { id: 'name', label: 'Name', autocomplete: 'name', max: 120 },
@@ -59,20 +56,21 @@ function showStep(index, moveFocus) {
 
 function draw(moveFocus = false) {
   const state = store.intakeState()
+  applicationStep(qs('mail') ? 2 : step, draft, undefined, { editable: !qs('mail') })
   if (qs('mail')) { drawMail(moveFocus); return }
   const existing = guided && store.demoApplication()
   if (existing && store.applicantLink(existing.access)) {
+    applicationStep(4, existing, store.agent(existing.agentId)?.sellerId)
     root.innerHTML = `<header><p class="eyebrow">Anna’s application · Demo</p><h1 class="h-page" tabindex="-1">Continue your application</h1></header>
       <a class="btn primary" href="${accessUrl('status', existing.access)}">Open application status</a>`
     return
   }
   root.innerHTML = `
     <header>
-      <p class="eyebrow">Application · Step ${step + 1} of 3</p>
+      <p class="eyebrow">Seller application</p>
       <h1 class="h-page" tabindex="-1">${steps[step]}</h1>
       <p class="proto">${guided ? 'Anna’s demo details are filled in. You can edit them.' : 'Prototype · Use fictional details. Your draft is saved in this tab.'}</p>
     </header>
-    <ol class="flow-progress meta">${steps.map((x, i) => `<li${i === step ? ' aria-current="step"' : ''}>${x}</li>`).join('')}</ol>
     <div id="intake-status" aria-live="polite"></div>
     <form novalidate>
       ${step < 2 ? fields[step].map(f => field({ ...f, value: draft[f.id] })).join('') : `
@@ -81,13 +79,13 @@ function draw(moveFocus = false) {
           <h2 class="h-task">How Marina uses your details</h2>
           <p>Your application details and test answers are used to assess your fit for the pilot. Approved applicants receive an invitation at the email they verified.</p>
           <details class="editorial-faq"><summary>Preview the draft agent terms</summary>${TERMS.map(t => `<p class="dim">${t}</p>`).join('')}</details>
-          <label class="checkline"><input type="checkbox" name="privacy" id="privacy" aria-describedby="privacy-error" required ${draft.privacy === 'on' ? 'checked' : ''}>I acknowledge how Marina uses my application details.</label>
+          <label class="checkline"><input type="checkbox" name="privacy" id="privacy" data-required-message="Acknowledge how Marina uses your details to continue." aria-describedby="privacy-error" required ${draft.privacy === 'on' ? 'checked' : ''}>I acknowledge how Marina uses my application details.</label>
           <p class="hint err" id="privacy-error" role="alert"></p>
           <p class="proto">Verification email and the live Turnstile check are simulated in this prototype.</p>
         </div>`}
       <p class="hint err" role="alert" id="submit-error"></p>
       <div class="actions">
-        ${step > 0 ? '<button type="button" class="btn" id="back">Back</button>' : '<a class="btn" href="become.html">Back to recruitment</a>'}
+        ${step > 0 ? '<button type="button" class="btn" id="back">Back</button>' : `<a class="btn" href="${esc(recruitmentUrl)}">Back to recruitment</a>`}
         <button class="btn primary" id="continue" type="submit">${step < 2 ? 'Continue' : state === 'closed' ? 'Join the waitlist' : 'Submit application'}</button>
       </div>
     </form>`
@@ -96,21 +94,16 @@ function draw(moveFocus = false) {
     draft = { ...draft, ...Object.fromEntries(new FormData(form)) }
     if (step === 2 && !$('#privacy').checked) delete draft.privacy
     saveDraft()
+    sellerPreview(draft, undefined, true)
   })
   if (step > 0) $('#back').onclick = () => showStep(step - 1, true)
   form.onsubmit = async e => {
     e.preventDefault()
     if (!validateFields(form)) return
-    if (step === 2 && !$('#privacy').checked) {
-      $('#privacy-error').textContent = 'Acknowledge how Marina uses your details to continue.'
-      $('#privacy').setAttribute('aria-invalid', 'true')
-      $('#privacy').focus()
-      return
-    }
     draft = { ...draft, ...Object.fromEntries(new FormData(form)) }
     if (step < 2) { showStep(step + 1, true); return }
     for (let i = 0; i < fields.length; i++) {
-      if (fields[i].some(f => f.required && !draft[f.id]?.trim())) { showStep(i, true); validateFields($('form', root)); return }
+      if (fields[i].some(f => f.required !== false && !draft[f.id]?.trim())) { showStep(i, true); validateFields($('form', root)); return }
     }
     const button = $('#continue')
     button.disabled = true
@@ -146,6 +139,8 @@ function updateIntake() {
 }
 
 function drawMail(moveFocus) {
+  const profile = store.applicationByAccess(mail?.access || explicitAccess)
+  if (profile) applicationStep(2, profile)
   const wait = mail?.waitlist || store.applicationByAccess(explicitAccess)?.state === 'waitlist'
   root.innerHTML = `
     <header>
