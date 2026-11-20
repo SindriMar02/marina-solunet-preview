@@ -80,7 +80,8 @@ export function walkthroughPreviews({ seller, quote, paid }, guestLink) {
 }
 
 export async function fillPreviewQr(link, targets) {
-  if (!link) return
-  const svg = await qrSvg(link, { example: true })
+  // Before Anna shares a tour the preview still shows a real (example) code: it opens the guest site.
+  const target = link || new URL('shop.html', location.href).href
+  const svg = await qrSvg(target, { example: true })
   targets.forEach(target => { target.innerHTML = svg })
 }
