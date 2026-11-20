@@ -15,11 +15,11 @@ function draw() {
   os.forEach(o => (groups[o.agentId || 'direct'] ||= []).push(o))
   const paid = o => ['confirmed', 'partially_refunded'].includes(o.state)
   const moneyNote = o => { const m = store.money(o); if (!m) return ''
-    if (m.unknown) return '<div class="sub">Paid on the earlier payment path · fees unknown</div>'
+    if (m.unknown) return '<div class="sub money-note">Paid on the earlier payment path · fees unknown</div>'
     const day = m.sameDayOpen ? 'Same Teya day: a refund now costs no fees' : m.net > 0 ? `Fees taken at Teya’s day end · payout ${esc(dayLabel(m.payoutOn))} (planned)` : 'Refunded in full'
     const fee = m.feeMinor ? ` · example fee ${isk(m.feeMinor)}${m.sameDayOpen ? ' at day end' : ''}` : store.refunded(o) ? ' · fee 0 kr' : ''
     const lost = m.refundFeeMinor ? ` · on refunded money ${isk(m.refundFeeMinor)}` : ''
-    return `<div class="sub">${day}${fee}${lost}${m.feeToConfirm ? ' · Teya to confirm' : ''}${m.tourRan ? ' · tour ran' : ''}</div>` }
+    return `<div class="sub money-note">${day}${fee}${lost}${m.feeToConfirm ? ' · Teya to confirm' : ''}${m.tourRan ? ' · tour ran' : ''}</div>` }
   const net = o => o.payments.reduce((t, p) => t + (p.kind === 'capture' ? p.amount : -p.amount), 0)
   $('#t').innerHTML = `<thead><tr><th>Departure</th><th>Tour · booking</th><th>Supplier</th><th class="num">Guests</th><th>Status</th><th>Credited</th><th class="num">Customer paid, net</th><th class="num">Commission</th><th>Demo actions</th></tr></thead>
   <tbody>${Object.entries(groups).map(([aid, list]) => { const a = store.agent(aid)

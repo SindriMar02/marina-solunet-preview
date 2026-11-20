@@ -531,3 +531,6 @@ html { scroll-padding-top: calc(var(--header) + 64px); }
 :is(.workbench, .site) :is(a, button, summary, label) { -webkit-tap-highlight-color: transparent; }
 :is(.h-page, .p-h2, .case-title h2, .work-heading .p-h2) { text-wrap: balance; }
 @media (max-width: 1023px) { .work-nav .rail-brand, .work-nav .rail-label, .work-nav .rail-foot { display: none; } }
+
+/* Teya money note under a sale's status: wrap instead of widening the column */
+#t .money-note { max-width: 26ch; }
